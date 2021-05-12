@@ -11,4 +11,5 @@ A collection of ImageJ1 macro.
 |Macro Name | Description |
 |---|---|
 |Align_Channels | Align channels |
+|Detect_3D_Spots | Detect and count spots in 3D |
 
