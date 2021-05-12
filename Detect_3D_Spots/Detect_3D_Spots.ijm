@@ -1,8 +1,8 @@
-// @Integer(label="channel", value=1) channel
-// @Double(label="spot size", value=1.0, style=slider, min=0.0, max=3.0) spot_size
-// @Double(label="10^-{probablity false alarm}", value=1, style=slider, min=0, max=5) pfa
-// @Boolean(label="render", value=true) dorender
-// @Double(label="rendering spot size", value=0.5, style=slider, min=0.0, max=3.0) rendering_spot_size
+// @Integer(label="Channel", value=1) channel
+// @Double(label="Spot size [px]", value=1.0, style=slider, min=0.0, max=3.0) spot_size
+// @Double(label="Probablity of false alarm (log10)", value=1, style=slider, min=0, max=5) pfa
+// @Boolean(label="Render", value=true) dorender
+// @Double(label="Rendering spot size [px]", value=0.5, style=slider, min=0.0, max=3.0) rendering_spot_size
 //
 //
 // Detection of spots in 3D stacks
@@ -19,13 +19,17 @@
 //
 // Jerome Boulanger 2020 for Alejandro 
 //
+
+if (nImages==0) {
+	generateTestImage();
+}
 	
 img = getImageID; 
 title = getTitle();
 spot = detect3DSpots(channel, spot_size, pfa);
 countSpotsPerROI(title);
 if (dorender) {
-	renderSpotImage(img, channel, spot,rendering_spot_size);
+	renderSpotImage(img, channel, spot, rendering_spot_size);
 }
 
 function countSpotsPerROI(name) {
@@ -133,4 +137,33 @@ function renderSpotImage(img, channel, spot, rendering_spot_size) {
 	rename("Spot rendering");
 	Stack.setChannel(2); 
 	resetMinAndMax();	
+}
+
+function generateTestImage() {
+	w = 100;
+	h = 100;
+	d = 100;
+	n = 10;
+	newImage("Stack", "8-bit grayscale-mode", w, h, 1, d, 1);
+	for (i = 0; i < n; i++) {
+		x = 10 + round((w-10) * random);
+		y = 10 + round((h-10) * random);
+		z = 10 + Math.ceil((d-10) * random);
+		setSlice(z);
+		setPixel(x,y,255);
+	}
+	run("Maximum 3D...", "x=2 y=2 z=2");
+	run("Gaussian Blur 3D...", "x=0.5 y=0.5 z=0.5");
+	run("Enhance Contrast...", "saturated=0");
+	run("Add Noise", "stack");
+	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
+	makeRectangle(0, 0, w/2, h/2);
+	roiManager("Add");
+	makeRectangle(w/2, 0, w/2, h/2);
+	roiManager("Add");
+	makeRectangle(0, h/2, w/2, h/2);
+	roiManager("Add");
+	makeRectangle(w/2, h/2, w/2, h/2);
+	roiManager("Add");
+	run("Select None");
 }
