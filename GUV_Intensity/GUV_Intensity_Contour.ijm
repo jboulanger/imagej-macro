@@ -77,6 +77,7 @@ function processROI(id0,id1,mask,roi,tmax,niter,bandwidth) {
 }
 
 function getPixelsValues(x,y) {
+	// Return an array with the pixel intensity as position given by x and y
 	a = newArray(x.length);
 	for (i=0;i<x.length;i++) {
 		a[i] = getPixel(x[i],y[i]);
@@ -107,8 +108,11 @@ function measure(roi,t,img,mask,bandwidth,roiindex) {
 	run("Area to Line");
 	Roi.getContainedPoints(x, y);
 	roiManager("select",roi);
-	run("Enlarge...", "enlarge=10");
-	run("Make Band...", "band=10");
+	getPixelSize(unit, pixelWidth, pixelHeight);
+	bandUm = 10*pixelWidth;
+	print(bandUm);
+	run("Enlarge...", "enlarge="+bandUm);
+	run("Make Band...", "band="+bandUm);
 	Roi.getContainedPoints(x0, y0);
 	selectImage(mask);
 	Stack.setFrame(t);
@@ -160,13 +164,23 @@ function addOverlay(img,mask,roi,frame,label) {
 	Overlay.setPosition(1, 1, frame);
 	Overlay.add();
 	Overlay.show();
+	roiManager("select",roi);
+	getPixelSize(unit, pixelWidth, pixelHeight);
+	bandUm = 10*pixelWidth;
+	run("Enlarge...", "enlarge="+bandUm);
+	run("Make Band...", "band="+bandUm);
+	Overlay.addSelection("blue",1);
+	Overlay.setPosition(1, 1, frame);
+	Overlay.add();
+	Overlay.show();
 }
 
 function trackGUV(img,roi,frame,smooth) {
 	print("Track  roi:"+ roi + " at frame:" + t);
 	selectImage(img);
 	roiManager("select", roi);
-	run("Enlarge...", "enlarge="+tmax/2);
+	getPixelSize(unit, pixelWidth, pixelHeight);
+	run("Enlarge...", "enlarge="+(tmax/2*pixelWidth));
 	run("Fit Circle");
 	roiManager("Add");
 	roiManager("select", roiManager("count")-2);
