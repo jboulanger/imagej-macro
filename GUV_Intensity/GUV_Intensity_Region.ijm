@@ -23,6 +23,10 @@
  * Jerome Boulanger 2016 for Lauren McGinney and Yohei Ohashi
  * Modified in mar 2018 for error of image focus + outlines
  */
+
+if (nImages==0) {
+	createTestImage(400,200,30);
+}
  
 macro "GUV Intensity" {	
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -250,3 +254,62 @@ function dec2hex(n) {
 	return codes[k1]+codes[k2]; 
 }
 
+function createTestImage(W,H,T) {
+	if(isOpen("ROI Manager")){selectWindow("ROI Manager");run("Close");}
+	newImage("Test", "32-bit grayscale-mode", W, H, 2, 1, T);
+	R  = 2;
+	for (r = 0; r < R; r++) {
+		x0 = (r+1) * W/(R+1);
+		y0 = H / 2;
+		d = H / 2;
+		Stack.setPosition(1, 1, 1);
+		makeOval(x0-(d+40)/2, y0-(d+40)/2,d+40,d+40);
+		roiManager("add");
+		for (t = 1; t <= T; t++) {
+			x0 = x0 + random("gaussian");
+			y0 = y0 + random("gaussian");
+			for (c = 1; c <= 2; c++) { 
+				Stack.setPosition(c, 1, t);
+				if (c==1) {
+					drawCircle(x0,y0,d,300);
+				} else {
+					drawCircle(x0,y0,d,(300+r*50)*(1/(1+exp(-10*(t-T/2)/T))));
+				}
+			}
+		}
+	}
+	run("Select None");
+	newImage("Blotch", "32-bit grayscale-mode", W, H, 1, 1, T);
+	run("Add Specified Noise...", "stack standard=5");
+	makeRectangle(20, 20, W-40, H-40);
+	run("Make Inverse");
+	for (t=1;t<=T;t++){
+		Stack.setPosition(c, 1, t);
+		setColor(0);
+		fill();
+	}
+	run("Select None");
+	run("Gaussian Blur...", "sigma=20 stack");
+	setThreshold(getValue("Mean")+3*getValue("StdDev"), 255);
+	run("Convert to Mask", "method=Default background=Default");
+	run("Gaussian Blur...", "sigma=5 stack");
+	run("Duplicate...", "title=cpy duplicate");
+	run("Merge Channels...", "c1=Blotch c2=cpy create");
+	rename("Blotch");
+	imageCalculator("Average stack", "Test", "Blotch");
+	selectWindow("Blotch");close();
+	run("Gaussian Blur...", "sigma=2 stack");
+	run("Add Noise", "stack");
+	for (c=1;c<=2;c++){
+		Stack.setPosition(c, 1, T);
+		resetMinAndMax();
+	}
+	run("8-bit");
+}
+
+function drawCircle(x0,y0,d,val) {
+	makeOval(x0-d/2, y0-d/2,d,d);
+	run("Make Band...", "band=3");
+	setColor(val);
+	fill();	
+}
