@@ -34,6 +34,14 @@ if (nSlices==1) {
 	exit("The image is not a stack.");
 }
 
+// Check the number of ROI in the ROI manager
+nroi = roiManager("count");
+while (nroi == 0) {
+	waitForUser("Please select ROI and add them to the ROI manager");
+	nroi = roiManager("count");
+}
+print("Analysis of " + nroi + " regions.");
+
 setBatchMode("hide");
 trackAndMeasureIntensity(bandwidth, tmax, niter);
 setBatchMode("exit and display");
@@ -85,6 +93,27 @@ function getPixelsValues(x,y) {
 	return a;
 }
 
+function getPixelValuesInBand(tmax) {
+	run("Interpolate", "interval=0.5 smooth adjust");
+	Roi.getSplineAnchors(x, y);
+	dx = diff(x);
+	dy = diff(y);
+	K = Math.ceil(4*tmax);
+	I = newArray(K*x.length);
+	for (i=0;i<x.length;i++) {
+		n = sqrt(dx[i]*dx[i]+dy[i]*dy[i]);
+		for (k=0;k<K;k++){
+			t = -tmax + 2 * tmax * k / K;
+			xt = x[i] + t * dy[i] / n;
+			yt = y[i] - t * dx[i] / n;
+			dt = 3 * t / (tmax);
+			w = exp(-0.5*dt*dt);
+			I[k+K*i] = getPixel(xt,yt)*w;
+		}
+	}
+	return I;
+}
+
 function sum(x) {
 	s = 0;
 	for (i=0;i<x.length;i++) {s+=x[i];}
@@ -103,36 +132,35 @@ function measure(roi,t,img,mask,bandwidth,roiindex) {
 	// 10px away from this line to define a background measure. The mask is used
 	// here again.
 	print("Measure roi:"+ roi + " at frame:" + t + " on  image " + getTitle());
-	roiManager("select",roi);
-	setLineWidth(bandwidth);
-	run("Area to Line");
-	Roi.getContainedPoints(x, y);
+
+	// background pixels
 	roiManager("select",roi);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	bandUm = 10*pixelWidth;
-	print(bandUm);
-	run("Enlarge...", "enlarge="+bandUm);
-	run("Make Band...", "band="+bandUm);
+	run("Enlarge...", "enlarge="+20*pixelWidth);
+	run("Make Band...", "band="+10*pixelWidth);
 	Roi.getContainedPoints(x0, y0);
+
+	// measure mask
 	selectImage(mask);
+	roiManager("select",roi);
 	Stack.setFrame(t);
-	M = getPixelsValues(x,y);
+	M = getPixelValuesInBand(bandwidth);
 	M0 = getPixelsValues(x0,y0);
-	SM = sum(M);
-	SM0 = sum(M0);
+	// measure in image
 	selectImage(img);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	setResult("Frame", t-1, t);
 	for (c = 1; c <= channels; c++) {
+		// intensity in the image
+		roiManager("select",roi);
 		Stack.setPosition(c, 1, t);
-		V = getPixelsValues(x,y);
-		for (i=0;i<x.length;i++) {V[i] = V[i]*M[i];}
-		SV = sum(V);
-		setResult("ROI"+roiindex+"-ch"+c, t-1, SV/SM);
+		V = getPixelValuesInBand(bandwidth);
+		for (i=0;i<V.length;i++) {V[i] = V[i]*M[i];}
+		setResult("ROI"+roiindex+"-ch"+c, t-1, sum(V)/sum(M));
+		// background
 		V0 = getPixelsValues(x0,y0);
 		for (i=0;i<x0.length;i++) {V0[i] = V0[i]*M0[i];}
-		SV0 = sum(V0);
-		setResult("BG"+roiindex+"-ch"+c, t-1, SV0/SM0);
+		setResult("BG"+roiindex+"-ch"+c, t-1, sum(V0)/sum(M0));
 	}
 }
 
@@ -164,11 +192,12 @@ function addOverlay(img,mask,roi,frame,label) {
 	Overlay.setPosition(1, 1, frame);
 	Overlay.add();
 	Overlay.show();
+	
+	// background
 	roiManager("select",roi);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	bandUm = 10*pixelWidth;
-	run("Enlarge...", "enlarge="+bandUm);
-	run("Make Band...", "band="+bandUm);
+	run("Enlarge...", "enlarge="+20*pixelWidth);
+	run("Make Band...", "band="+10*pixelWidth);
 	Overlay.addSelection("blue",1);
 	Overlay.setPosition(1, 1, frame);
 	Overlay.add();
@@ -180,7 +209,7 @@ function trackGUV(img,roi,frame,smooth) {
 	selectImage(img);
 	roiManager("select", roi);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	run("Enlarge...", "enlarge="+(tmax/2*pixelWidth));
+	run("Enlarge...", "enlarge="+(tmax/4*pixelWidth));
 	run("Fit Circle");
 	roiManager("Add");
 	roiManager("select", roiManager("count")-2);
@@ -353,7 +382,6 @@ function showGraphs(nchannels) {
 	Plot.create("Graph","Frame","Intensity")
 	legend="";
 	colors = getLutHexCodes("Ice",nchannels*nroi*2);
-	Array.print(colors);
 	mini=255;
 	maxi=0;
 	type = newArray("ROI","BG");
