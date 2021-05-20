@@ -26,13 +26,15 @@
 
 if (nImages==0) {
 	print("Creating a test image");
-	createTestImage(400,200,100);
+	createTestImage(400,200,50);
 	print("Number of ROI:" + roiManager("count"));
 }
 
 if (nSlices==1) {
 	exit("The image is not a stack.");
 }
+
+if (isOpen("Results")) {selectWindow("Results");run("Close");}
 
 // Check the number of ROI in the ROI manager
 nroi = roiManager("count");
@@ -93,7 +95,8 @@ function getPixelsValues(x,y) {
 	return a;
 }
 
-function getPixelValuesInBand(tmax) {
+function getPixelValuesInBand(bandwidth) {
+	tmax = 3 * bandwidth;
 	run("Interpolate", "interval=0.5 smooth adjust");
 	Roi.getSplineAnchors(x, y);
 	dx = diff(x);
@@ -106,7 +109,7 @@ function getPixelValuesInBand(tmax) {
 			t = -tmax + 2 * tmax * k / K;
 			xt = x[i] + t * dy[i] / n;
 			yt = y[i] - t * dx[i] / n;
-			dt = 3 * t / (tmax);
+			dt = t / bandwidth;
 			w = exp(-0.5*dt*dt);
 			I[k+K*i] = getPixel(xt,yt)*w;
 		}
@@ -134,9 +137,10 @@ function measure(roi,t,img,mask,bandwidth,roiindex) {
 	print("Measure roi:"+ roi + " at frame:" + t + " on  image " + getTitle());
 
 	// background pixels
+	selectImage(img);
 	roiManager("select",roi);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	run("Enlarge...", "enlarge="+20*pixelWidth);
+	run("Enlarge...", "enlarge="+10*pixelWidth);
 	run("Make Band...", "band="+10*pixelWidth);
 	Roi.getContainedPoints(x0, y0);
 
@@ -146,21 +150,26 @@ function measure(roi,t,img,mask,bandwidth,roiindex) {
 	Stack.setFrame(t);
 	M = getPixelValuesInBand(bandwidth);
 	M0 = getPixelsValues(x0,y0);
+	
 	// measure in image
 	selectImage(img);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	setResult("Frame", t-1, t);
+
 	for (c = 1; c <= channels; c++) {
+		
 		// intensity in the image
 		roiManager("select",roi);
 		Stack.setPosition(c, 1, t);
 		V = getPixelValuesInBand(bandwidth);
 		for (i=0;i<V.length;i++) {V[i] = V[i]*M[i];}
 		setResult("ROI"+roiindex+"-ch"+c, t-1, sum(V)/sum(M));
+		
 		// background
 		V0 = getPixelsValues(x0,y0);
 		for (i=0;i<x0.length;i++) {V0[i] = V0[i]*M0[i];}
 		setResult("BG"+roiindex+"-ch"+c, t-1, sum(V0)/sum(M0));
+		
 	}
 }
 
@@ -194,13 +203,36 @@ function addOverlay(img,mask,roi,frame,label) {
 	Overlay.show();
 	
 	// background
-	roiManager("select",roi);
+	selectImage(mask);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	run("Enlarge...", "enlarge="+20*pixelWidth);
+	run("Enlarge...", "enlarge="+10*pixelWidth);
 	run("Make Band...", "band="+10*pixelWidth);
-	Overlay.addSelection("blue",1);
+	roiManager("add"); roi1 = roiManager("count")-1;
+	
+	setThreshold(0.5, 1);
+	run("Create Selection");
+	if (getValue("Area") < getWidth*getHeight) {
+		roiManager("add"); roi2 = roiManager("count")-1;
+
+		roiManager("select", newArray(roi1,roi2));
+		roiManager("and");
+		roiManager("add"); roi3 = roiManager("count")-1;
+
+		selectImage(img);
+		roiManager("select", roi3);
+		Overlay.addSelection("blue",1);
+		roiManager("select", roi3);roiManager("delete");
+		roiManager("select", roi2);roiManager("delete");
+		roiManager("select", roi1);roiManager("delete");
+	} else {
+		selectImage(img);
+		roiManager("select", roi1);
+		Overlay.addSelection("blue",1);
+		roiManager("select", roi1); roiManager("delete");
+	}
 	Overlay.setPosition(1, 1, frame);
 	Overlay.add();
+
 	Overlay.show();
 }
 
@@ -277,8 +309,6 @@ function gradTheCurve(x,y,tmax) {
 	delta = 0; // displacement of the curve
 	K = 4*tmax;
 	for (i = 0; i < x.length; i++) {
-		I = newArray(K); // intensities along normal
-		T = newArray(K); // position along normal
 		n = sqrt(dx[i]*dx[i]+dy[i]*dy[i]);
 		swx = 0;
 		sw = 0;
@@ -286,10 +316,10 @@ function gradTheCurve(x,y,tmax) {
 			t = -tmax + 2 * tmax * k / K;
 			xt = x[i] + t * dy[i] / n;
 			yt = y[i] - t * dx[i] / n;
-			I[k] = getPixel(xt,yt);
-			T[k] = t;
-			swx += I[k]*T[k];
-			sw += I[k]*exp(-0.5*(t*t)/(tmax*tmax));
+			I = getPixel(xt,yt);
+			w = I*exp(-0.5*(t*t)/(tmax*tmax));
+			swx += w * t;
+			sw += w;
 		}
 		if (sw>0) {
 			tstar = swx / sw;
@@ -340,6 +370,7 @@ function createTestImage(W,H,T) {
 			}
 		}
 	}
+	setBatchMode(true);
 	run("Select None");
 	newImage("Blotch", "32-bit grayscale-mode", W, H, 1, 1, T);
 	run("Add Specified Noise...", "stack standard=5");
@@ -367,6 +398,7 @@ function createTestImage(W,H,T) {
 		resetMinAndMax();
 	}
 	run("8-bit");
+	setBatchMode(false);
 }
 
 function drawCircle(x0,y0,d,val) {

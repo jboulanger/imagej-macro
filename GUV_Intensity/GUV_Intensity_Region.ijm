@@ -27,6 +27,8 @@
 if (nImages==0) {
 	createTestImage(400,200,30);
 }
+
+if (isOpen("Results")) {selectWindow("Results");run("Close");}
  
 macro "GUV Intensity" {	
 	Stack.getDimensions(width, height, channels, slices, frames);
