@@ -26,6 +26,7 @@ if (matches(yheadcsv,"all")) {
 	yhead = split(yheadcsv,",");
 }
 
+Array.print(yhead);
 showGraphs(xhead,yhead,palette,ylabel,title);
 
 function showGraphs(xhead,yhead,palette,ylabel,title) {
@@ -40,13 +41,13 @@ function showGraphs(xhead,yhead,palette,ylabel,title) {
 		Array.getStatistics(I, min, max, mean, stdDev);
 		mini = minOf(min,mini);
 		maxi = maxOf(max,maxi);
-		legend += yhead[c];
+		legend += yhead[c]+"\t";
 		Plot.setColor(colors[c]);
 		Plot.setLineWidth(2);
 		Plot.add("line", T, I,yhead[c]);
 	}
 	Plot.setLimits(0, T[T.length-1], mini, maxi);
-	Plot.setLegend(legend);
+	Plot.setLegend(legend,"options");
 }
 
 function getLutHexCodes(name,n) {

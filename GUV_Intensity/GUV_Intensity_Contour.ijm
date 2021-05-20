@@ -95,14 +95,19 @@ function getPixelsValues(x,y) {
 	return a;
 }
 
-function getPixelValuesInBand(bandwidth) {
+function getPointsAndWeight(bandwidth) {
 	tmax = 3 * bandwidth;
 	run("Interpolate", "interval=0.5 smooth adjust");
 	Roi.getSplineAnchors(x, y);
 	dx = diff(x);
 	dy = diff(y);
 	K = Math.ceil(4*tmax);
-	I = newArray(K*x.length);
+	A = newArray(3+3*K*x.length);
+	A[0] = 3;
+	A[1] = K;
+	A[2] = x.length;
+	sw = 0;
+	swx = 0;
 	for (i=0;i<x.length;i++) {
 		n = sqrt(dx[i]*dx[i]+dy[i]*dy[i]);
 		for (k=0;k<K;k++){
@@ -111,10 +116,67 @@ function getPixelValuesInBand(bandwidth) {
 			yt = y[i] - t * dx[i] / n;
 			dt = t / bandwidth;
 			w = exp(-0.5*dt*dt);
-			I[k+K*i] = getPixel(xt,yt)*w;
+			A[3+3*(k+K*i)] = xt;
+			A[4+3*(k+K*i)] = yt;
+			A[5+3*(k+K*i)] = w;
+		}
+	}
+	return A;
+}
+
+function getPixelValuesInWeigtedBand(A) {
+	K = A[1];
+	L = A[2];
+	I = newArray(K*L);
+	for (i = 0; i < L; i++) {
+		for (k = 0; k < K; k++){
+			I[k+K*i] = getPixel(A[3+3*(k+K*i)],A[4+3*(k+K*i)]) * A[5+3*(k+K*i)];
 		}
 	}
 	return I;
+}
+
+
+function getPixelValuesInBand(img,mask,bandwidth,frame) {
+	// sum (img*mask*gaussian) / sum (mask*gaussian) for each channel
+	tmax = 3 * bandwidth;
+	run("Interpolate", "interval=0.5 smooth adjust");
+	Roi.getSplineAnchors(x, y);
+	dx = diff(x);
+	dy = diff(y);
+	L = x.length;
+	K = Math.ceil(4*tmax);
+	xt = newArray(K*L);
+	yt = newArray(K*L);
+	w = newArray(K*L);
+	m = newArray(K*L);
+	selectImage(mask);
+	Stack.setFrame(frame);
+	for (i=0;i<L;i++) {
+		n = sqrt(dx[i]*dx[i]+dy[i]*dy[i]);
+		for (k=0;k<K;k++) {
+			t = -tmax + 2 * tmax * k / K;
+			dt = t / bandwidth;
+			xt[k+K*i] = x[i] + t * dy[i] / n;
+			yt[k+K*i] = y[i] - t * dx[i] / n;
+			w[k+K*i] = exp(-0.5*dt*dt);
+			m[k+K*i] = getPixel(xt[k+K*i],yt[k+K*i]);
+		}
+	}
+	selectImage(img);
+	Stack.getDimensions(width, height, channels, slices, frames);
+	values = newArray(channels);
+	for (c=1;c<=channels;c++) {
+		Stack.setPosition(c, 1, frame);
+		s = 0;
+		sw = 0;
+		for (i=0;i<K*L;i++) {
+			s += getPixel(xt[i],yt[i]) * m[i] * w[i];
+			sw +=  m[i] * w[i];
+		}
+		values[c-1] = s/sw;
+	}
+	return values;
 }
 
 function sum(x) {
@@ -148,28 +210,24 @@ function measure(roi,t,img,mask,bandwidth,roiindex) {
 	selectImage(mask);
 	roiManager("select",roi);
 	Stack.setFrame(t);
-	M = getPixelValuesInBand(bandwidth);
 	M0 = getPixelsValues(x0,y0);
 	
 	// measure in image
+	values = getPixelValuesInBand(img,mask,bandwidth,t);
+	
 	selectImage(img);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	setResult("Frame", t-1, t);
-
 	for (c = 1; c <= channels; c++) {
-		
 		// intensity in the image
 		roiManager("select",roi);
 		Stack.setPosition(c, 1, t);
-		V = getPixelValuesInBand(bandwidth);
-		for (i=0;i<V.length;i++) {V[i] = V[i]*M[i];}
-		setResult("ROI"+roiindex+"-ch"+c, t-1, sum(V)/sum(M));
+		setResult("ROI"+roiindex+"-ch"+c, t-1, values[c-1]);
 		
 		// background
 		V0 = getPixelsValues(x0,y0);
 		for (i=0;i<x0.length;i++) {V0[i] = V0[i]*M0[i];}
 		setResult("BG"+roiindex+"-ch"+c, t-1, sum(V0)/sum(M0));
-		
 	}
 }
 
@@ -303,7 +361,7 @@ function createMaskForAggregate(sz) {
 }
 
 function gradTheCurve(x,y,tmax) {
-	// fit a gaussian to the normal intensity linescan
+	// find the contour
 	dx = diff(x);
 	dy = diff(y);
 	delta = 0; // displacement of the curve
