@@ -1,9 +1,12 @@
+#@ Boolean(label="Correct",value=false) correct
 /*
  * GUV_Background.ijm
  * 
  * Measure average mean intensity over all ROIs for each channel and time frame.
  * 
- * Jerome Boulanger
+ * correct: add a corrected column or estimate the background
+ * 
+ * Jerome Boulanger 2021
  */
 
 Stack.getDimensions(width, height, channels, slices, frames);
@@ -17,6 +20,18 @@ for (frame = 1; frame <= frames; frame++) {
 			val += getValue("Mean"); 
 		}
 		val /= roiManager("count");
-		setResult("BG-ch"+(channel), frame-1, val);
+		if (correct) {
+			header = split(Table.headings,"\t");
+			for (i = 0; i < header.length; i++){
+				if (matches(header[i], ".*-ch"+channel)) {
+					for (row = 0; row < nResults; row++) {
+						I = getResult(header[i], row);
+						setResult(header[i]+"-corrected", row, I-val);
+					}
+				}
+			}
+		} else {
+			setResult("BG-ch"+(channel), frame-1, val);
+		}
 	}
 }
