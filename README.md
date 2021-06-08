@@ -14,3 +14,4 @@ A collection of ImageJ1 macro.
 |Detect_3D_Spots | Detect and count spots in 3D |
 |Colocalization_Analysis| Colocalization in ROIs |
 |GUV_Intensity|Analysis of intensity over time of GUVs|
+|FRAP_Measure| FRAP measurement with manual tracking |
