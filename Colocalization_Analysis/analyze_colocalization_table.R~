@@ -1,0 +1,11 @@
+### Illustrate the exploring of the Colocalization.csv table using ggplot
+
+library(ggplot2)
+
+csvname <- file.choose(new = FALSE)
+
+df <- read.csv(csvname)
+
+summary(df)
+
+ggplot(df, aes(x=Image,y=Pearson)) +geom_boxplot()

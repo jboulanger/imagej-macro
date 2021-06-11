@@ -106,12 +106,13 @@ tags = split(tagstr," ");
 while (tags.length < channels) {
 	tags = Array.concat(tags, newArray("ch"+(1+tags.length)));
 }
-Array.print(tags);
 
 // retreive the id of the image and name
 id0 = getImageID(); name = getTitle();
+
 // clear overlays
 Overlay.remove();
+
 // add initial ROI as white
 roi0 = newArray(roiManager("count"));
 roi0 = Array.getSequence(roiManager("count"));
@@ -120,9 +121,9 @@ colorROI(roi0,"white",true);
 // Processing
 
 // preprocess the image
-if (matches(preprocess_type,"LoG")) {
+if (matches(preprocess_type, "LoG")) {
 	id  = preprocess1(scale);
-} else if(matches(preprocess_type,"Rolling Ball")) {
+} else if(matches(preprocess_type, "Rolling Ball")) {
 	id  = preprocess2(scale);
 } else {
 	run("Select None");
@@ -167,97 +168,97 @@ for (c = 1; c <= channels; c++) {
 }
 
 if (docoloc) {
-
-// Compute the colocalization coefficients
-tblname = "Colocalization.csv";
-if (!isOpen(tblname)) {
-	Table.create(tblname);
-}
-
-for (k = 0; k < roi0.length; k++) {
-	roiManager("select",roi0[k]);
-	Roi.getBounds(rx, ry, rwidth, rheight);
-	run("Select None");
-	roi_area = rwidth*rheight;
-	for (c1 = 1; c1 <= channels; c1++) {
-		for (c2 = c1+1; c2 <= channels; c2++) {
-			// compute the union of roi in roi0[k] and channel 1 and 2
-			union = newArray(all_childs.length);
-			l = 0;
-			for (i = 0; i < all_childs.length; i++) {
-				// if they belong one of the two channels and roi k
-				if (roi_channel[i] == c1 || roi_channel[i] == c2) {
-					if (hasROI(roi0[k], all_childs[i])){
-						union[l] = all_childs[i];
-						l++;
+	
+	// Compute the colocalization coefficients
+	tblname = "Colocalization.csv";
+	if (!isOpen(tblname)) {
+		Table.create(tblname);
+	}
+	
+	for (k = 0; k < roi0.length; k++) {
+		roiManager("select",roi0[k]);
+		Roi.getBounds(rx, ry, rwidth, rheight);
+		run("Select None");
+		roi_area = rwidth*rheight;
+		for (c1 = 1; c1 <= channels; c1++) {
+			for (c2 = c1+1; c2 <= channels; c2++) {
+				// compute the union of roi in roi0[k] and channel 1 and 2
+				union = newArray(all_childs.length);
+				l = 0;
+				for (i = 0; i < all_childs.length; i++) {
+					// if they belong one of the two channels and roi k
+					if (roi_channel[i] == c1 || roi_channel[i] == c2) {
+						if (hasROI(roi0[k], all_childs[i])){
+							union[l] = all_childs[i];
+							l++;
+						}
 					}
 				}
+				union = Array.trim(union,l);
+				// Measure the instensity in both channels
+				selectImage(id);
+				roiManager("select", union);
+				roiManager("combine");
+				Stack.setChannel(c1);
+				x1 = getIntensities();
+				Stack.setChannel(c2);
+				x2 = getIntensities();
+	
+				selectImage(id0);
+				run("Restore Selection");
+				Stack.setChannel(c1);
+				m1 = getValue("Max");
+				y1 = getIntensities();
+				Stack.setChannel(c2);
+				m2 = getValue("Max");
+				y2 = getIntensities();
+			
+				// Compute the colocalization measures
+				if (onoriginal) {
+					pcc = pearson(x1, x2);
+					rs  = spearman(x1, x2);
+					M   = manders(x1,x2,y1,y2,thresholds[c1-1],thresholds[c2-1]);
+				} else {
+					pcc = pearson(y1, y2);
+					rs  = spearman(y1, y2);
+					M   = manders(x1,x2,x1,x2,thresholds[c1-1],thresholds[c2-1]);
+				}
+							
+				// saving results
+				selectWindow(tblname);
+				row = Table.size();
+				Table.set("Condition", row, condition);
+				Table.set("Image", row, name);
+				Table.set("ROI", row, k+1);
+				Table.set("Ch1", row, tags[c1-1]);
+				Table.set("Ch2", row, tags[c2-1]);
+				Table.set("Pearson", row, pcc[0]);
+				Table.set("Spearman", row, rs);
+				Table.set("M1", row, M[0]);
+				Table.set("M2", row, M[1]);
+				Table.set("MOC", row, M[2]);
+				Table.set("Area Object 1 [px]", row, M[3]);
+				Table.set("Area Object 2 [px]", row, M[4]);
+				Table.set("Area Intersection [px]", row, M[5]);
+				Table.set("Mean Ch1 in Object 1", row, M[6]);
+				Table.set("Mean Ch2 in Object 2", row, M[7]);
+				Table.set("Mean Ch1 in Intersection", row, M[8]);
+				Table.set("Mean Ch2 in Intersection", row, M[9]);
+				Table.set("Mean Ch1", row, pcc[1]);
+				Table.set("Stddev Ch1 ", row, pcc[2]);
+				Table.set("Max Ch1", row, m1);
+				Table.set("Mean Ch2", row, pcc[3]);
+				Table.set("Stddev Ch2", row, pcc[4]);
+				Table.set("Max Ch2", row, m2);
+				Table.set("D", row, (M[5]-M[3]*M[4]/roi_area)/roi_area);
+				Table.set("preprocessing",row, preprocess_type);
+				Table.set("scale",row, scale);
+				Table.set("logpfa",row, logpfa);
+				Table.set("min area",row, areafilter);
+				Table.set("use original",row, onoriginal);
 			}
-			union = Array.trim(union,l);
-			// Measure the instensity in both channels
-			selectImage(id);
-			roiManager("select", union);
-			roiManager("combine");
-			Stack.setChannel(c1);
-			x1 = getIntensities();
-			Stack.setChannel(c2);
-			x2 = getIntensities();
-
-			selectImage(id0);
-			run("Restore Selection");
-			Stack.setChannel(c1);
-			m1 = getValue("Max");
-			y1 = getIntensities();
-			Stack.setChannel(c2);
-			m2 = getValue("Max");
-			y2 = getIntensities();
-		
-			// Compute the colocalization measures
-			if (onoriginal) {
-				pcc = pearson(x1, x2);
-				rs  = spearman(x1, x2);
-				M   = manders(x1,x2,y1,y2,thresholds[c1-1],thresholds[c2-1]);
-			} else {
-				pcc = pearson(y1, y2);
-				rs  = spearman(y1, y2);
-				M   = manders(x1,x2,x1,x2,thresholds[c1-1],thresholds[c2-1]);
-			}
-						
-			// saving results
-			selectWindow(tblname);
-			row = Table.size();
-			Table.set("Condition", row, condition);
-			Table.set("Image", row, name);
-			Table.set("ROI", row, k+1);
-			Table.set("Ch1", row, tags[c1-1]);
-			Table.set("Ch2", row, tags[c2-1]);
-			Table.set("Pearson", row, pcc[0]);
-			Table.set("Spearman", row, rs);
-			Table.set("M1", row, M[0]);
-			Table.set("M2", row, M[1]);
-			Table.set("MOC", row, M[2]);
-			Table.set("Area Object 1 [px]", row, M[3]);
-			Table.set("Area Object 2 [px]", row, M[4]);
-			Table.set("Area Intersection [px]", row, M[5]);
-			Table.set("Mean Ch1 in Object 1", row, M[6]);
-			Table.set("Mean Ch2 in Object 2", row, M[7]);
-			Table.set("Mean Ch1 in Intersection", row, M[8]);
-			Table.set("Mean Ch2 in Intersection", row, M[9]);
-			Table.set("Mean Ch1", row, pcc[1]);
-			Table.set("Stddev Ch1 ", row, pcc[2]);
-			Table.set("Max Ch1", row, m1);
-			Table.set("Mean Ch2", row, pcc[3]);
-			Table.set("Stddev Ch2", row, pcc[4]);
-			Table.set("Max Ch2", row, m2);
-			Table.set("D", row, (M[5]-M[3]*M[4]/roi_area)/roi_area);
-			Table.set("preprocessing",row, preprocess_type);
-			Table.set("scale",row, scale);
-			Table.set("logpfa",row, logpfa);
-			Table.set("min area",row, areafilter);
-			Table.set("use original",row, onoriginal);
 		}
 	}
-}
 }
 // Close the processed image
 selectImage(id); close();
