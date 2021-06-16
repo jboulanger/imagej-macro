@@ -6,8 +6,17 @@ From the standard deviation of the Gaussian fit several resolution criterion are
 
 If no image are opened a test image with 25 regularly spaced beads is generated.
 
+![image](https://user-images.githubusercontent.com/3415561/122259643-4c139700-ceca-11eb-8d2c-795bba9b4560.png)
+
+
 ## Tutorial
 
 - Open an image
 - Run the macro and fill in the parameters
+![image](https://user-images.githubusercontent.com/3415561/122259531-31412280-ceca-11eb-83e2-aa92b5a7086a.png)
+- The macro generate a table with the parameter of each object:
+![image](https://user-images.githubusercontent.com/3415561/122259803-75ccbe00-ceca-11eb-86e0-88e492d81a6b.png)
+
+
+
 
