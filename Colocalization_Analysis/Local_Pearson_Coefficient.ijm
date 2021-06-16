@@ -6,23 +6,30 @@
 /*
  * Compute a local correlation coefficient between 2 channels
  * 
+ * The Pearson Correlation Coefficient is measured in Gaussian windows
+ * defined by the two sigma parameters.
  * 
- * Jerome Boulanger for Aly Maklouf
+ * 
+ * Jerome Boulanger 2021 for Aly Maklouf
  */
+run("Close All");
+if (nImages==0) {
+	create_test_image();
+	ch1 = 1;
+	ch2 = 2;
+}
 
 Stack.getDimensions(width, height, channels, slices, frames);
 setBatchMode(true);
-localPearsonCorrelationCoefficient(2, 3, sxy, sz);
+localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz);
 setBatchMode(false);
 
 function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
 	// Compute a peasronn Correlation Coefficient in a Gaussian window
 	// PCC = sum(I1 I2) / sqrt(sum(I1^2)*sum(I2^2))
 	id0 = getImageID();
-	ch1 = 2;
-	ch2 = 3;
-	sxy = 20;
-	sz = 2;
+	name = getTitle();
+	Stack.getDimensions(width, height, channels, slices, frames);
 	run("Duplicate...", "title=id1 duplicate channels="+ch1);
 	selectWindow("id1");
 	id1 = getImageID();
@@ -37,7 +44,6 @@ function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
 	run("32-bit");
 	m2 = getValue("Mean");
 	run("Subtract...", "value="+m2+" stack");
-
 	
 	// Multiply the two channel
 	imageCalculator("Multiply create 32-bit stack",id1,id2);
@@ -47,25 +53,24 @@ function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
 	// Smoothing with a Gaussian kernel
 	selectImage(id1); 
 	run("Square","stack");
-	run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);	
+	if (slices > 1) {
+		run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);	
+	} else {
+		run("Gaussian Blur...", "sigma="+sxy+" stack");
+	}
 	selectImage(id2); 
 	run("Square","stack");
-	run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);
+	if (slices > 1) {
+		run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);	
+	} else {
+		run("Gaussian Blur...", "sigma="+sxy+" stack");
+	}
 	selectImage(id3); 
-	run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);
-
-	// create a mask
-	/*
-	selectImage(id3);
-	run("Duplicate...", "title=mask duplicate");
-	selectWindow("mask");
-	mask = getImageID();	
-	Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	setThreshold(10, max);
-	run("Make Binary", "method=Default background=Dark black");
-	run("Divide...", "value=255 stack");
-	run("32-bit");
-	*/
+		if (slices>1) {
+		run("Gaussian Blur 3D...", "x="+sxy+" y="+sxy+" z="+sz);	
+	} else {
+		run("Gaussian Blur...", "sigma="+sxy+" stack");
+	}
 	
 	// Compute denominator (id1 = id1 x id2)
 	imageCalculator("Multiply create 32-bit stack",id1,id2);
@@ -75,15 +80,24 @@ function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
 
 	// Compute the ratio sum(id1 id2) / 
 	imageCalculator("Divide create 32-bit stack",id3,id4);
-	rename("Colocalization");
+	rename("Colocalization of "+name+" ch"+ch1+"-ch"+ch2);
 	id5 = getImageID();
-
-	//imageCalculator("Multilpy 32-bit stack",id5,mask);
+	run("Fire");
 
 	// Clean up
-	//selectImage(id1); close();
-	//selectImage(id2); close();
-	//selectImage(id3); close();
-	//selectImage(id4); close();
-		
+	selectImage(id1); close();
+	selectImage(id2); close();
+	selectImage(id3); close();
+	selectImage(id4); close();
+	
+	return id5;			
+}
+
+
+function create_test_image() {
+	newImage("Test Image", "8-bit composite-mode", 400, 200, 2, 1, 1);
+	Stack.setChannel(1);
+	run("Macro...", "  code=v=128*(1+sin(2*3.14159*x/32)) slice");
+	Stack.setChannel(2);
+	run("Macro...", "  code=v=128*(1+sin(3.14159*(2*x/32+x/w))) slice");
 }
