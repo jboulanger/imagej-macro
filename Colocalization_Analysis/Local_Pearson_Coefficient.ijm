@@ -12,7 +12,7 @@
  * 
  * Jerome Boulanger 2021 for Aly Maklouf
  */
-run("Close All");
+
 if (nImages==0) {
 	create_test_image();
 	ch1 = 1;
