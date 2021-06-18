@@ -1,11 +1,13 @@
 #@ File (label="Input file", style="open") filename
 #@ File (label="Output folder", style="directory") imageFolder
+#@ String(label="Format",choices={"TIFF","PNG","JPEG"},style="list") format
+#@ boolean (label="MIP",value=false) mip
 
 /* Convert all series in a lif file to TIFs in a folder
  *  
  *  You can batch process LIFs using the Batch function in the script editor
  *  
- * Jerome Boulanger for Marta 2021  
+ * Jerome Boulanger for Marta 2021
  */
  
 run("Close All");
@@ -14,12 +16,17 @@ run("Bio-Formats Macro Extensions");
 print("File selected :" + filename);
 Ext.setId(filename);
 Ext.getSeriesCount(seriesCount);
+print("File contains " + seriesCount + " series");
 for (s = 1; s <= seriesCount; s++) {
 	str="open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+s+"";
 	run("Bio-Formats Importer", str);
-	oname = imageFolder + File.separator + replace(getTitle,".lif","_serie_"+s) + ".tif";
+	if (mip) {
+		print("Computing maximum intensity projection");
+		run("Z Project...", "projection=[Max Intensity] all");	
+	}
+	oname = imageFolder + File.separator + replace(getTitle,".lif.*","_serie_"+IJ.pad(s,4)) + ".tif";
 	print("Saving serie "+ s +"/" + seriesCount + " to "+ oname);
-	saveAs("TIFF",oname);
+	saveAs(format,oname);
 	close();
 }
 Ext.close();
