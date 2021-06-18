@@ -200,12 +200,10 @@ function detect3DSpots(channel, size, pfa) {
 	
 	if (slices==1) {
 		run("Minimum...", "radius=1");
-		run("Maximum...", "radius=1");		
-		print("2D");
+		run("Maximum...", "radius=1");				
 	} else {
 		run("Minimum 3D...", "x=1 y=1 z=1");
-		run("Maximum 3D...", "x=1 y=1 z=1");
-		print("3D");
+		run("Maximum 3D...", "x=1 y=1 z=1");		
 	}
 		
 	// combine local max and threshold
