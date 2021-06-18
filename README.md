@@ -2,7 +2,7 @@
 This is a collection of ImageJ1 macro that we found useful for analysing images acquired on optical microscopes enabling the quantification of biological processes. 
 
 ## Requirement
-- We use Fiji to develop the macros https://imagej.net/Fiji.
+- We use Fiji (ImageJ 1.53c) to develop the macros https://imagej.net/Fiji.
 - Some macros use script parameters https://imagej.net/Script_parameters
 
 ## Content
