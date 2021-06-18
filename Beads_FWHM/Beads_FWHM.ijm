@@ -33,11 +33,17 @@ detect3DSpots(channel, spot_size, pfa);
 // add the particles to the ROI manager
 run("Analyze Particles...", "add stack");
 
+print("Number of detected beads : " + roiManager("count"));
+
 // close the detection image
 close();
 
 // analyse the size of the spots
-analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm, spot_size);
+if  (roiManager("count") == 0) {
+	print("No detected beads. Aborting.");
+} else {
+	analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm, spot_size);	
+}
 
 setBatchMode(false);
 
@@ -60,9 +66,10 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		i0 = Table.size;
 	}
 	for (i = 0; i < n; i++) {
-    	roiManager("select", i);    	
-		x0 = (getValue("XM"))/pw-0.5;
-		y0 = (getValue("YM"))/ph-0.5;
+    	roiManager("select", i);
+    	List.setMeasurements(); 	
+		x0 = (List.getValue("XM"))/pw-0.5;
+		y0 = (List.getValue("YM"))/ph-0.5;
 		Stack.getPosition(channel, z0, frame);
 		k = i0 + i;
 		Table.set("System", k, system);
