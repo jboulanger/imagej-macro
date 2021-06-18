@@ -22,10 +22,13 @@ for (s = 1; s <= seriesCount; s++) {
 	run("Bio-Formats Importer", str);
 	if (mip) {
 		print("Computing maximum intensity projection");
+		id0=getImageID();
 		run("Z Project...", "projection=[Max Intensity] all");	
+		selectImage(id0);close();
 	}
 	oname = imageFolder + File.separator + replace(getTitle,".lif.*","_serie_"+IJ.pad(s,4)) + ".tif";
 	print("Saving serie "+ s +"/" + seriesCount + " to "+ oname);
+	setResult("",s-1,s)
 	saveAs(format,oname);
 	close();
 }
