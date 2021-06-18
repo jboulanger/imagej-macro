@@ -6,7 +6,16 @@
 // @Double(label="Bead size [nm]", value=100, style=slider, min=0.0, max=1000) bead_size_nm
 // @String(label="System", value="default") system
 
-run("Close All");
+/* 
+ *  Beads FWHM
+ *  
+ *  Compute the full width half max of beads and other resolution criterion based on a Gaussian fit
+ *  of the bead.
+ *  
+ *  Jerome Boulanger 2021 for Nick Barry
+ */
+
+
 if (nImages==0) {
 	generateTestImage(wavelength_nm,numerical_aperture,bead_size_nm);
 }
