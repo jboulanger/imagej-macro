@@ -1,26 +1,25 @@
 // @Integer(label="Channel", value=1) channel
-// @Double(label="Probablity of false alarm (log10)", value=1, style=slider, min=0, max=5) pfa
+// @Double(label="Spot size [px]", value=1, style=slider, min=1, max=4.0) spot_size
+// @Double(label="Probablity of false alarm (log10)", value=1, style=slider, min=1, max=4.0) pfa
 // @Double(label="Wavelength [nm]", value=500, style=slider, min=400, max=1000) wavelength_nm
 // @Double(label="Numerical Aperture", value=1.25, min=0, max=1.5) numerical_aperture
 // @Double(label="Bead size [nm]", value=100, style=slider, min=0.0, max=1000) bead_size_nm
 // @String(label="System", value="default") system
 
-run("Close All"); 
+run("Close All");
 if (nImages==0) {
 	generateTestImage(wavelength_nm,numerical_aperture,bead_size_nm);
 }
 
+Overlay.remove();
+
 // Close the ROI manager if opened
 if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
 
-// Compute the expected size of beads to set the spot size for spot detection 
-getPixelSize(unit, pw, ph, pd);	
-s = 0.51 * wavelength_nm / numerical_aperture;
-s = sqrt(s*s + bead_size_nm*bead_size_nm/16);
-spot_size = s / 1000 / pw;
+setBatchMode(true);
 
 // run the spot detection on the specified channel
-detect3DSpots(channel, 2*spot_size, pfa);
+detect3DSpots(channel, spot_size, pfa);
 
 // add the particles to the ROI manager
 run("Analyze Particles...", "add stack");
@@ -29,20 +28,19 @@ run("Analyze Particles...", "add stack");
 close();
 
 // analyse the size of the spots
-analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm);
+analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm, spot_size);
 
-function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm) {
+setBatchMode(false);
+
+function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,spot_size) {
 	getPixelSize(unit, pw, ph, pd);	
 	if (matches(unit,"microns")||matches(unit,"µm")||matches(unit,"micron"))	{
 			ps = pw * 1000;			
 	} else {
 		ps = pw;
 	}
-	s = 0.51 * wavelength_nm / numerical_aperture;
-	s = sqrt(s*s + bead_size_nm*bead_size_nm/16);
-	spot_size = s / ps ;
 	gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
-	L = 3*spot_size;
+	L = 6*spot_size;
 	n = roiManager("count");
 	i0 = nResults;	
 	if (!isOpen("Beads_FWHM.csv")) {
@@ -140,77 +138,86 @@ function circularAverage(x0,y0,N,L) {
 
 
 
-function detect3DSpots(channel, size, pfa) {
-	setBatchMode(true);
+function detect3DSpots(channel, size, pfa) {	
+	Stack.getDimensions(width, height, channels, slices, frames);
+	print("slices="+slices);
 	run("Select None");
 	sigma1 = size;
 	sigma2 = 2 * size;
 	p = round(2*size+1);
 	id0 = getImageID;
 	// compute a difference of Gaussian
-	run("Duplicate...", "title=id1 duplicate channels="+channel);	
+	run("Duplicate...", "title=id1 duplicate channels="+channel);
 	id1 = getImageID;	
 	run("32-bit");
-	run("Gaussian Blur 3D...", "x="+sigma1+" y="+sigma1+" z="+sigma1);
+	if (slices==1) {
+		run("Gaussian Blur...", "sigma="+sigma1);
+	} else {
+		run("Gaussian Blur 3D...", "x="+sigma1+" y="+sigma1+" z="+sigma1);
+	}
 	run("Duplicate...", "title=id2 duplicate");
 	id2 = getImageID;
-	run("Gaussian Blur 3D...", "x="+sigma2+" y="+sigma2+" z="+sigma2);	
+	if (slices==1) {
+		run("Gaussian Blur...", "sigma="+sigma1);
+	} else {
+		run("Gaussian Blur 3D...", "x="+sigma2+" y="+sigma2+" z="+sigma2);	
+	}
 	imageCalculator("Subtract 32-bit stack",id1,id2);
-	selectImage(id2);close();
+	selectImage(id2); close();
 	
 	// local maxima
 	selectImage(id1);
 	run("Duplicate...", "title=id3 duplicate");
-	id3 = getImageID;		
-	run("Maximum 3D...", "x="+p+" y="+p+" z="+p);
+	id3 = getImageID;
+	if (slices==1) {
+		run("Maximum...", "radius="+p);
+	} else {
+		run("Maximum 3D...", "x="+p+" y="+p+" z="+p);
+	}
 	imageCalculator("Subtract 32-bit stack",id3,id1);	
-	setThreshold(0,0);
-	run("Make Binary", "method=Default background=Dark black");	
-	run("Divide...", "value=255 stack");
+	run("Macro...", "code=v=(v==0) stack");	
 	
 	// threshold
 	selectImage(id1);
-	if (nSlices>1) {
-		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
+	if (slices == 1) {
+		getStatistics(area, mean, min, max, stdDev, histogram);		
 	} else {
-		getStatistics(area, mean, min, max, stdDev, histogram);
-	}
-	lambda = -2*norminv(pow(10,-pfa));
-	//print("pfa="+pfa+" ->" +pow(10,-pfa) + "->"+lambda);
+		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
+	}		
+	lambda = -2*norminv(pow(10,-pfa));	
 	threshold = mean + lambda * stdDev;
-	setThreshold(threshold, max);	
-	run("Make Binary", "method=Default background=Dark black");	
-	run("Minimum 3D...", "x=1 y=1 z=1");
-	run("Maximum 3D...", "x=1 y=1 z=1");
-	run("Divide...", "value=255 stack");	
+	print("pfa="+pfa+" ->" +pow(10,-pfa) + "->"+lambda+" -> threshold:"+threshold);		
+	run("Macro...", "code=v=(v>"+threshold+") stack");	
 	
+	if (slices==1) {
+		run("Minimum...", "radius=1");
+		run("Maximum...", "radius=1");		
+		print("2D");
+	} else {
+		run("Minimum 3D...", "x=1 y=1 z=1");
+		run("Maximum 3D...", "x=1 y=1 z=1");
+		print("3D");
+	}
+		
 	// combine local max and threshold
-	imageCalculator("Multiply stack",id1,id3);
+	imageCalculator("Multiply stack",id1,id3);	
 	selectImage(id3);close();
-	setThreshold(0.5, 1);
-	run("Make Binary", "method=Default background=Dark black");		
-	
-	// remove edges	
-	if (nSlices>1) {
-		setSlice(1);
+			
+	// remove edges		
+	if (slices > 1) {
+		Stack.setSlice(1);
 		run("Select All");
 		setBackgroundColor(0, 0, 0);
 		run("Cut");
 		run("Select None");
-		setSlice(nSlices);
+		Stack.setSlice(slices);
 		run("Select All");
 		run("Cut");
 		run("Select None");
-		}
-
-	// count	
-	if (nSlices>1) {
-		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	} else {
-		getStatistics(voxelCount, mean, min, max, stdDev, histogram);
-	}	
-	rename("Spot detection");
-	setBatchMode(false);
+	}
+	setThreshold(0.5,1);
+		
+	rename("Spot detection");		
 	return id1;
 }
 
@@ -231,7 +238,7 @@ function generateTestImage(wavelength_nm,numerical_aperture,bead_size_nm) {
 	print("Spot std in pixel "+ spot_size);
 	print("Spot std in nm :" + s);	
 	
-	newImage("Stack", "32-bit grayscale-mode", w, h, 1, d, 1);
+	newImage("Test Image", "32-bit grayscale-mode", w, h, 1, d, 1);
 	run("Properties...", "channels=1 slices="+d+" frames=1 pixel_width="+pw+" pixel_height="+pw+" voxel_depth=0.3");
 	Stack.setUnits("micron", "micron", "micron", "s", "graylevel");	
 	
