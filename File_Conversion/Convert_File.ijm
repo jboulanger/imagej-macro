@@ -14,10 +14,12 @@
  * Convert file enabling to select channel, slices, frames, maximum intensity projection
  * and conversion to 8/16/32 bits.
  * 
- * Jeorme Boulanger for Nathan 2021
+ * Jerome Boulanger for Nathan 2021
  * 
  */
 
+setBatchMode(true);
+print("Opening file " + filename);
 open(filename);
 id0 = getImageID();
 
@@ -35,11 +37,19 @@ if (!matches(channel, "all") || !matches(slice, "all") || !matches(frame, "all")
 	args = "channels="+channel+" slices="+slice+" frames="+frame;
 	print(args);
 	run("Duplicate...", "duplicate " + args);
+	id1 = getImageID();
+	selectImage(id0);close();
+	selectImage(id1);
+} else {
+	id1 = id0;
 }
 
 if (mip) {
+	selectImage(id1);
 	run("Z Project...", "projection=[Max Intensity]");
-	selectImage(id0); close();
+	id2 = getImageID();
+	selectImage(id1); close();
+	selectImage(id2);
 }
 
 run(mode);
@@ -50,6 +60,8 @@ oname = imageFolder + File.separator + name + tag + ext;
 print("Saving image to file " + oname);
 saveAs(format,oname);
 close();
+
+setBatchMode(false);
 
 function getNewFileExtension(format) {
 	f = newArray("TIFF","PNG","JPEG");
