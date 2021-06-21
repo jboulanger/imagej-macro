@@ -2,7 +2,7 @@
 #@Integer (label="Channel 2",  value = 3) ch2
 #@Float (label="Smoothing in XY [px]", value = 10) sxy
 #@Float (label="Smoothing in Z [px]",  value = 10) sz
-
+#@String(label="LUT", choices={"Fire","Grays","Ice"}) lut
 /*
  * Compute a local correlation coefficient between 2 channels
  * 
@@ -21,10 +21,10 @@ if (nImages==0) {
 
 Stack.getDimensions(width, height, channels, slices, frames);
 setBatchMode(true);
-localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz);
+localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz, lut);
 setBatchMode(false);
 
-function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
+function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz,lut) {
 	// Compute a peasronn Correlation Coefficient in a Gaussian window
 	// PCC = sum(I1 I2) / sqrt(sum(I1^2)*sum(I2^2))
 	id0 = getImageID();
@@ -82,7 +82,7 @@ function localPearsonCorrelationCoefficient(ch1, ch2, sxy, sz) {
 	imageCalculator("Divide create 32-bit stack",id3,id4);
 	rename("Colocalization of "+name+" ch"+ch1+"-ch"+ch2);
 	id5 = getImageID();
-	run("Fire");
+	run(lut);
 
 	// Clean up
 	selectImage(id1); close();
