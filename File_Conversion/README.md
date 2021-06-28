@@ -5,7 +5,7 @@ Two macros that help handling files in multi-serie container or a set of files.
 The macros apply to only one file at thes using "Run". Use "Batch" to process multiple files.
 
 ## Export_Series.ijm
-This macro exports the individual series from a container such as a LIF file acquired on a Leica microscope with the LAX software. It enable to apply a few common operatios on channels, and stacks.
+This macro exports the individual series from a container such as a LIF file acquired on a Leica microscope with the LAX software. It enable to apply a few common operations on channels, and stacks.
 
 You can use the dummy run mode to simply export the name of the series to a table for example.
 
