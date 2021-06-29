@@ -14,7 +14,7 @@
  *  
  *  You can batch process files using the Batch function in the script editor
  *  
- *  Using the dummay mode enable to inspect image size as well and save the result in a cvs file
+ *  Using the dummy mode enable to inspect image size as well and save the result in a cvs file
  *  
  * Jerome Boulanger for Marta 2021
  */
