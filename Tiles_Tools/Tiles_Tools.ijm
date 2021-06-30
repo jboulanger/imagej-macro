@@ -13,9 +13,9 @@
 if (nImages==0) {
 	print("testing mode");
 	run("Close All");
-	run("Blobs (25K)");
-	//run("Boats");
-	run("Grays");
+	//run("Blobs (25K)");
+	run("Boats");
+	//run("Grays");
 	setBatchMode(true);
 	print("Splitting the image into overlaping tiles");
 	split_tiles(ncolumns,nrows,overlap_x,overlap_y,5);
@@ -29,7 +29,7 @@ if (nImages==0) {
 	merge_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	setBatchMode(false);
 } else {
-	setBatchMode(true);
+	setBatchMode("hide");
 	if (matches(mode,"Split")) {
 		split_tiles(ncolumns,nrows,overlap_x,overlap_y,0);
 	} else if (matches(mode,"Align")) {
@@ -39,7 +39,8 @@ if (nImages==0) {
 	} else {
 		merge_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	}
-	setBatchMode(false);
+	//setBatchMode("show");
+	setBatchMode("exit and display");
 }
 
 function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
@@ -112,6 +113,7 @@ function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
 }
 
 function add_sprite(src,dst,cd,zd,td) {
+	// not used
 	selectImage(src);
 	run("Select None");
 	w = getWidth();
@@ -180,7 +182,7 @@ function processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y) {
 		shift = cropAndEstimateShift(ref[k],idx[k],sideref[k],sideidx[k],overlap_x,overlap_y);
 		Stack.setFrame(idx[k]);
 		run("Select None");
-		run("Translate...", "x="+-shift[0]+" y="+-shift[1]+" interpolation=Bicubic");
+		run("Translate...", "x="+-shift[0]+" y="+-shift[1]+" interpolation=Bicubic slice");
 		dx0 = getResult("x", idx[k]-1);
 		dy0 = getResult("y", idx[k]-1);
 		setResult("x",idx[k]-1,dx0-shift[0]);
