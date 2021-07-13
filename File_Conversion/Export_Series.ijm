@@ -1,14 +1,20 @@
-#@ File (label="Input file", style="open") filename
-#@ File (label="Output folder", style="directory") imageFolder
-#@ String(label="Format",choices={"TIFF","PNG","JPEG"},style="list") format
-#@ boolean (label="MIP",value=false) mip
-#@ boolean (label="Dummy run",value=true) dummy
+#@File (label="Input file", style="open") filename
+#@String (label="Channels", value="all", description="Use Duplicate formateg 1-3 or all") channel
+#@String (label="Slices", value="all", description="Use Duplicate format eg 1-2 or all") slice
+#@String (label="Frames", value="all", description="Use Duplicate format eg 1-10 or all") frame
+#@String (label="Series", value="all", description="Extract series, use 'all' to extract all") serie
+#@Boolean (label="Maximum Intensity Projection", value=false, description="Perform a MIP on the image") mip
+#@String (label="Mode", choices={"Same","8-bit","16-bit","32-bit"}, description="Select the bit-depth of the image") mode
+#@File (label="Output folder", style="directory") imageFolder
+#@String (label="Format",choices={"TIFF","PNG","JPEG"},style="list") format
+#@String(label="Tag", value="", description="Add a tag to the filename before the extension when saving the image") tag
+#@boolean (label="Dummy run",value=true) dummy
 
 /* Convert all series in a file to TIFs in a folder
  *  
  *  You can batch process files using the Batch function in the script editor
  *  
- *  Using the dummay mode enable to inspect image size as well and save the result in a cvs file
+ *  Using the dummy mode enable to inspect image size as well and save the result in a cvs file
  *  
  * Jerome Boulanger for Marta 2021
  */
@@ -25,10 +31,20 @@ Ext.setId(filename);
 Ext.getSeriesCount(seriesCount);
 print("File contains " + seriesCount + " series");
 
-for (s = 1; s <= seriesCount; s++) {
+if (matches(serie,"all")) {
+	s0 = 1;
+	s1 = seriesCount
+} else {
+	str = split(serie,"-");
+	s0 = parseInt(str[0]);
+	s1 = parseInt(str[1]);
+}
+
+
+for (s = s0; s <= s1; s++) {
 	
 	str="open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+s+"";	
-	oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + ext;
+	oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + tag + ext;
 	
 	Ext.setSeries(s-1);
 	Ext.getSeriesName(seriesName);
@@ -42,17 +58,12 @@ for (s = 1; s <= seriesCount; s++) {
 		
 	} else {
 		
-		print("Loading serie : " + s + "/" + seriesCount);			
+		print("Loading serie " + s + "/" + (s1-s0+1));			
 		run("Bio-Formats Importer", str);
+
+		processImage(channel, slice, frame, mip, mode);
 		
-		if (mip) {
-			print("Computing maximum intensity projection");
-			id0 = getImageID();
-			run("Z Project...", "projection=[Max Intensity] all");	
-			selectImage(id0);close();
-		}
-		
-		print("Saving serie "+ s +"/" + seriesCount + " to "+ oname);	
+		print("Saving serie "+ s +"/" + (s1-s0+1) + " to "+ oname);	
 		saveAs(format,oname);
 		close();		
 	}
@@ -79,4 +90,41 @@ function getNewFileExtension(format) {
 		}
 	}
 	return ".tif";
+}
+
+function processImage(channel, slice, frame, mip, mode) {
+	id0 = getImageID();
+	if (!matches(channel, "all") || !matches(slice, "all") || !matches(frame, "all") ) {
+		Stack.getDimensions(width, height, channels, slices, frames);
+		if (matches(channel, "all")) {
+			channel= "1-"+channels;
+		}
+		if (matches(slice, "all")) {
+			slice = "1-"+slices;
+		}
+		if (matches(frame, "all")) {
+			frame = "1-"+frames;
+		}
+		args = "channels="+channel+" slices="+slice+" frames="+frame;
+		print(args);
+		run("Duplicate...", "duplicate " + args);
+		id1 = getImageID();
+		selectImage(id0);close();
+		selectImage(id1);
+	} else {
+		id1 = id0;
+	}
+	
+	if (mip) {
+		selectImage(id1);
+		run("Z Project...", "projection=[Max Intensity]");
+		id2 = getImageID();
+		selectImage(id1); close();
+		selectImage(id2);
+	}
+	
+	if (!matches(mode,"Same")){
+		run(mode);
+	}
+	return getImageID();
 }

@@ -2,39 +2,45 @@
 #@Integer(label="Rows", value=3) nrows
 #@Integer(label="Horizontal overlap", value=8) overlap_x
 #@Integer(label="Vertical overlap", value=8) overlap_y
-#@String(label="Action", choices={"Split","Align","Merge"}) mode
+#@String(label="Action", choices={"Split","Align","Apply","Merge"}) mode
+
 /*
- * Split, Align, Merge tiles
- * 
+ * Split, Align & Merge tiles
  * 
  * Jerome Boulanger 2021
  */
-run("Close All");
+ 
 if (nImages==0) {
 	print("testing mode");
 	run("Close All");
-	run("Blobs (25K)");
-	//run("Boats");
-	run("Grays");
+	//run("Blobs (25K)");
+	run("Boats");
+	//run("Grays");
 	setBatchMode(true);
-	split_tiles(ncolumns,nrows,overlap_x,overlap_y,10);
+	print("Splitting the image into overlaping tiles");
+	split_tiles(ncolumns,nrows,overlap_x,overlap_y,5);
 	setBatchMode(false);
 	setBatchMode(true);
+	print("Aligning the images tiles");
 	align_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	setBatchMode(false);
 	setBatchMode(true);
+	print("Merging the tiles in a mosaic");
 	merge_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	setBatchMode(false);
 } else {
-	setBatchMode(true);
+	setBatchMode("hide");
 	if (matches(mode,"Split")) {
 		split_tiles(ncolumns,nrows,overlap_x,overlap_y,0);
 	} else if (matches(mode,"Align")) {
 		align_tiles(ncolumns,nrows,overlap_x,overlap_y);
+	} else if (matches(mode,"Apply")) {
+		apply_transform(ncolumns,nrows,overlap_x,overlap_y);
 	} else {
 		merge_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	}
-	setBatchMode(false);
+	//setBatchMode("show");
+	setBatchMode("exit and display");
 }
 
 function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
@@ -42,54 +48,108 @@ function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
 	Stack.getDimensions(tile_width, tile_height, channels, slices, frames);
 	W = ncolumns*tile_width-(ncolumns-1)*overlap_x;
 	H = nrows*tile_height-(nrows-1)*overlap_y;
-	newImage("Tiled", "32-bit", W, H, 1);
+	newImage("Tiled", "32-bit grayscale-mode", W, H, channels, slices, 1);
 	dst = getImageID();
-	newImage("acc", "32-bit", W, H, 1);
+	newImage("acc", "32-bit grayscale-mode", W, H, channels, slices, 1);
 	acc = getImageID();
-	newImage("tmp1", "32-bit",  W, H, 1);
+	newImage("tmp1", "32-bit grayscale-mode",  W, H, 1,1,1);
 	tmp1 = getImageID();
-	newImage("tmp2", "32-bit",  W, H,1);
+	newImage("tmp2", "32-bit grayscale-mode",  W, H, 1,1,1);
 	tmp2 = getImageID();
-	b = 0;
+	b = 0; // border
 	for (j = 0; j < nrows; j++) {
 		for (i = 0; i < ncolumns; i++) {
 			x =  i * (tile_width - overlap_x);
 			y =  j * (tile_height - overlap_y);
-			selectImage(src);
-			Stack.setFrame(i+ncolumns*j+1);
-			makeRectangle(b,b,tile_width-2*b,tile_height-2*b);
-			run("Copy");
-					
-			// create a mask for the tile
-			selectImage(tmp2);
-			run("Select None");
-			setColor(0); fill();
-			makeRectangle(x+b,y+b,tile_width-2*b,tile_height-2*b);
-			run("Paste");
-			run("Select None");
-			run("Macro...", "code=v=(v>1) slice");
-			// add the tmp image to the accumulator acc
-			imageCalculator("Add 32-bit", acc, tmp2);
-
-			// paste the tile in tmp1
-			selectImage(tmp1);
-			run("Select None");
-			setColor(0); fill();
-			makeRectangle(x+b,y+b,tile_width-2*b,tile_height-2*b);
-			run("Paste");
-			run("Select None");
-			imageCalculator("Multiply 32-bit", tmp1, tmp2);
-			// add the tmp image to the accumulator dst
-			imageCalculator("Add", dst, tmp1);
+			for (channel = 1; channel <= channels; channel++) {
+				for (slice = 1; slice <= slices; slice++) {	
+					selectImage(src);
+					Stack.setPosition(channel, slice, i+ncolumns*j+1);
+					makeRectangle(b,b,tile_width-2*b,tile_height-2*b);
+					run("Copy");
+							
+					// create a mask for the tile
+					selectImage(tmp2);
+					run("Select None"); setColor(0); fill();	
+					makeRectangle(x+b,y+b,tile_width-2*b,tile_height-2*b);
+					run("Paste");
+					run("Select None");
+					run("Macro...", "code=v=(v>0)");
+					d0 = sqrt(tile_width*tile_width+tile_height*tile_height);
+					run("Macro...", "code=v=(v*(1-d/"+d0+"))");
+						
+					// add the tmp image to the accumulator acc
+					selectImage(acc); Stack.setPosition(channel, slice, 1);
+					imageCalculator("Add", acc, tmp2);
+							
+					// paste the tile in tmp1
+					selectImage(tmp1);
+					run("Select None");
+					setColor(0); fill();
+					makeRectangle(x+b,y+b,tile_width-2*b,tile_height-2*b);
+					run("Paste");
+					run("Select None");
+					imageCalculator("Multiply", tmp1, tmp2);
+					// add the tmp image to the accumulator dst
+					selectImage(dst);Stack.setPosition(channel, slice, 1);
+					imageCalculator("Add", dst, tmp1);					
+				}
+			}
 		}
 	}
-	imageCalculator("Divide", dst, acc);
+	
+	imageCalculator("Divide stack", dst, acc);
 	selectImage(acc); close();
 	selectImage(tmp1); close();
 	selectImage(tmp2); close();
 	selectImage(dst);
 	run("Select None");
+	if (nSlices > 1) {
+		Stack.setDisplayMode("composite");
+		Stack.setActiveChannels("111");
+		for (c = 1; c <= channels; c++){ Stack.setChannel(c); resetMinAndMax(); }
+	}
 	return dst;
+}
+
+function add_sprite(src,dst,cd,zd,td) {
+	// not used
+	selectImage(src);
+	run("Select None");
+	w = getWidth();
+	h = getHeight();
+	buf = newArray(w*h);
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			buf[x+y*w] = getPixel(x, y);	
+		}
+	}
+	selectImage(dst);
+	Stack.setPosition(cd, zd, td);
+	run("Select None");					
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			v = getPixel(x,y);
+			setPixel(x,y,v+buf[x+y*w]);	
+		}
+	}
+}
+
+function apply_transform(ncolumns,nrows,overlap_x,overlap_y) {
+	// apply the shift in the result table to the stack
+	// apply to all channels & slices
+	src = getImageID();
+	Stack.getDimensions(tile_width, tile_height, channels, slices, frames);
+	for (k = 0; k < frames; k++) {
+		dx0 = getResult("x", k);
+		dy0 = getResult("y", k);
+		for (c = 1; c <= channels; c++) {
+			for (z = 1; z <= slices; z++) {
+				Stack.setPosition(c, z, k+1);
+				run("Translate...", "x="+dx0+" y="+dy0+" interpolation=Bicubic slice");
+			}
+		}
+	}
 }
 
 function align_tiles(ncolumns,nrows,overlap_x,overlap_y) {
@@ -99,12 +159,20 @@ function align_tiles(ncolumns,nrows,overlap_x,overlap_y) {
 	idx = newArray(nrows*ncolumns);
 	sideref = newArray(nrows*ncolumns);
 	sideidx = newArray(nrows*ncolumns);
+	for (k = 0; k < frames; k++) {
+		setResult("x", k, 0);
+		setResult("y", k, 0);
+	}
 	createPath(ref,idx,sideref,sideidx,ncolumns,nrows,0);
+	processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
+	createPath(ref,idx,sideref,sideidx,ncolumns,nrows,1);
 	processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
 	createPath(ref,idx,sideref,sideidx,ncolumns,nrows,2);
 	processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
-	//createPath(ref,idx,sideref,sideidx,ncolumns,nrows,1);
-	//processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
+	createPath(ref,idx,sideref,sideidx,ncolumns,nrows,3);
+	processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
+	createPath(ref,idx,sideref,sideidx,ncolumns,nrows,0);
+	processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y);
 	run("Select None");
 }
 
@@ -114,14 +182,18 @@ function processPath(ref,idx,sideref,sideidx,overlap_x,overlap_y) {
 		shift = cropAndEstimateShift(ref[k],idx[k],sideref[k],sideidx[k],overlap_x,overlap_y);
 		Stack.setFrame(idx[k]);
 		run("Select None");
-		run("Translate...", "x="+-shift[0]+" y="+-shift[1]+" interpolation=Bicubic");
+		run("Translate...", "x="+-shift[0]+" y="+-shift[1]+" interpolation=Bicubic slice");
+		dx0 = getResult("x", idx[k]-1);
+		dy0 = getResult("y", idx[k]-1);
+		setResult("x",idx[k]-1,dx0-shift[0]);
+		setResult("y",idx[k]-1,dy0-shift[1]);
 	}
 }
 
 function createPath(ref,idx,sideref,sideidx,ncolumns,nrows,type) {
 	// create a path across tiles with matching sides
 	k = 0;
-	if (type==0) {
+	if (type==0) { // forward column major
 		for (j = 0; j < nrows; j++) {
 			for (i = 0; i < ncolumns; i++) {
 				if (k!=0) {
@@ -139,10 +211,10 @@ function createPath(ref,idx,sideref,sideidx,ncolumns,nrows,type) {
 				k++;
 			}
 		}
-	} else if(type==1) {
+	} else if(type==1) { // forward row major
 		for (i = 0; i < ncolumns; i++) {
 			for (j = 0; j < nrows; j++) {	
-				if (k!=0) {
+				if (k != 0) {
 					idx[k] = i+ncolumns*j+1;
 					if (i==0) {
 						ref[k] = i+ncolumns*(j-1)+1;
@@ -157,9 +229,9 @@ function createPath(ref,idx,sideref,sideidx,ncolumns,nrows,type) {
 				k++;
 			}
 		}
-	} else if (type==2) {
-		for (j = nrows-1; j > 0; j--) {
-			for (i = ncolumns-1; i > 0; i--) {
+	} else if (type==2) { // backward column major
+		for (j = nrows-1; j >= 0; j--) {
+			for (i = ncolumns-1; i >= 0; i--) {
 				if (k!=nrows*ncolumns-1) {
 					idx[k] = i+ncolumns*j+1;
 					if (j==nrows-1) {
@@ -170,6 +242,24 @@ function createPath(ref,idx,sideref,sideidx,ncolumns,nrows,type) {
 						ref[k] = i+ncolumns*(j+1)+1;
 						sideref[k] = 1;
 						sideidx[k] = 3;
+					}
+				}
+				k++;
+			}
+		}
+	} else if(type==3) { // backward row major
+		for (i = ncolumns-1; i >= 0; i--) {
+			for (j = nrows-1; j > = 0; j--) {	
+				if (k != 0) {
+					idx[k] = i+ncolumns*j+1;
+					if (i==0) {
+						ref[k] = i+ncolumns*(j-1)+1;
+						sideref[k] = 3;
+						sideidx[k] = 1;
+					} else {
+						ref[k] = i-1+ncolumns*j+1;
+						sideref[k] = 2;
+						sideidx[k] = 4;
 					}
 				}
 				k++;
@@ -254,7 +344,6 @@ function cropAndEstimateShift(n1,n2,side1,side2,overlap_x,overlap_y) {
 	selectImage(id2); close();
 	return shift;
 }
-
 
 function duplicate_side(name,n,side,overlap_x,overlap_y) {
 	Stack.getDimensions(width, height, channels, slices, frames);
