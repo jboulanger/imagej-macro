@@ -23,7 +23,6 @@
  */
  
 macro "Analyse Camera Noise" {
-	//name=getTitle; 	
 	id=getImageID;			
 	E = newArray(n*nSlices);
     V = newArray(n*nSlices);  
@@ -194,6 +193,5 @@ function plotNoiseSignatureInPhoton(E,V,gain,dcmean,dcstd,offset,Qe) {
         Plot.add("dots", En, Vn);
         Plot.setColor("#ffaa00");
         Plot.add("line", Ef, Vf);
-        Plot.setLegend("Data\nFit");     
-          
+        Plot.setLegend("Data\nFit");          
 }
