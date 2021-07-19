@@ -7,6 +7,7 @@
 #@File (label="Output folder", style="directory", description="Output folder where image will be saved") imageFolder
 #@String(label="Tag", value="", description="Add a tag to the filename before the extension when saving the image") tag
 #@String(label="Format",choices={"TIFF","PNG","JPEG"}, style="list", description="File format as in the saveAs() command") format
+
 /*
  * Convert files
  * 
@@ -20,7 +21,7 @@
 setBatchMode(true);
 print("Opening file " + filename);
 open(filename);
-processImage();
+processImage(channel, slice, frame, mip, mode);
 name = File.getNameWithoutExtension(filename);
 ext = getNewFileExtension(format);
 oname = imageFolder + File.separator + name + tag + ext;
@@ -41,10 +42,10 @@ function getNewFileExtension(format) {
 	return ".tif";
 }
 
-function processImage(channel, slice, frame, mode) {
+function processImage(channel, slice, frame, mip, mode) {
 	id0 = getImageID();
+	Stack.getDimensions(width, height, channels, slices, frames);
 	if (!matches(channel, "all") || !matches(slice, "all") || !matches(frame, "all") ) {
-		Stack.getDimensions(width, height, channels, slices, frames);
 		if (matches(channel, "all")) {
 			channel= "1-"+channels;
 		}
@@ -64,7 +65,7 @@ function processImage(channel, slice, frame, mode) {
 		id1 = id0;
 	}
 	
-	if (mip) {
+	if (mip && slices > 1) {
 		selectImage(id1);
 		run("Z Project...", "projection=[Max Intensity]");
 		id2 = getImageID();
