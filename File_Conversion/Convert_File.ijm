@@ -24,10 +24,29 @@ open(filename);
 processImage(channel, slice, frame, mip, mode);
 name = File.getNameWithoutExtension(filename);
 ext = getNewFileExtension(format);
-oname = imageFolder + File.separator + name + tag + ext;
-print("Saving image to file " + oname);
-saveAs(format,oname);
-close();
+
+id1 = processImage(channel, slice, frame, mip, mode);
+		
+if (split_channels) {
+	selectImage(id1);
+	Stack.getDimensions(width, height, channels, slices, frames);
+	for (c = 1; c <= channels; c++) {
+		selectImage(
+		run("Duplicate...", "duplicate channels="+c);
+		idc = getImageID();
+		oname = imageFolder + File.separator + name + "_channel_" + IJ.pad(s,2) + tag + ext;	
+		print("Saving channel" + c +" to "+ oname);	
+		saveAs(format,oname);	
+		selectImage(idc);
+		close();
+	}
+} else {
+	oname = imageFolder + File.separator + name + tag + ext;
+	print("Saving image to file"+ oname);	
+	saveAs(format,oname);
+}
+selectImage(id1); close();
+
 setBatchMode(false);
 
 function getNewFileExtension(format) {

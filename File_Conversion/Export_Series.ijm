@@ -47,7 +47,6 @@ if (matches(serie,"all")) {
 for (s = s0; s <= s1; s++) {
 	
 	str="open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+s+"";	
-	oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + tag + ext;
 	
 	Ext.setSeries(s-1);
 	Ext.getSeriesName(seriesName);
@@ -80,6 +79,7 @@ for (s = s0; s <= s1; s++) {
 				close();
 			}
 		} else {
+			oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + tag + ext;
 			print("Saving serie "+ s +"/" + (s1-s0+1) + " to "+ oname);	
 			saveAs(format,oname);
 		}
