@@ -17,7 +17,8 @@
  *  
  *  Using the dummy mode enable to inspect image size as well and save the result in a cvs file
  *  
- * Jerome Boulanger for Marta 2021 - updated for Nathan
+ * Jerome Boulanger for Marta 2021
+ - updated for Nathan
  */
  
 run("Close All");
@@ -33,8 +34,8 @@ print("File contains " + seriesCount + " series");
 
 if (matches(serie,"all")) {
 	s0 = 1;
-	s1 = seriesCount
-} if  (matches(serie,"last")) {
+	s1 = seriesCount;
+} else if  (matches(serie,"last")) {
 	s0 = seriesCount;
 	s1 = seriesCount;
 } else {
@@ -43,7 +44,7 @@ if (matches(serie,"all")) {
 	s1 = parseInt(str[1]);
 }
 
-
+nR0 = nResults;
 for (s = s0; s <= s1; s++) {
 	
 	str="open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+s+"";	
@@ -53,46 +54,49 @@ for (s = s0; s <= s1; s++) {
 	Ext.getSizeX(sizeX);
 	Ext.getSizeY(sizeY);
 	Ext.getSizeZ(sizeZ);
+	Ext.getSizeC(sizeC);
 	Ext.getSizeT(sizeT);
-	if (dummy) {		
-		print("bioformat args: " + str);	
-		print("output file   : " + oname);		
 		
-	} else {
-		
-		print("Loading serie " + s + "/" + (s1-s0+1));			
-		run("Bio-Formats Importer", str);
-
+	print("Loading serie " + s + "/" + (s1-s0+1));			
+	if (!dummy) {
+		run("Bio-Formats Importer", str); 
 		id1 = processImage(channel, slice, frame, mip, mode);
-		
-		if (split_channels) {
-			selectImage(id1);
-			Stack.getDimensions(width, height, channels, slices, frames);
-			for (c = 1; c <= channels; c++) {
-				selectImage(
+	}
+	if (split_channels) {
+		for (c = 1; c <= sizeC; c++) {
+			oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + "_channel_" + IJ.pad(c,2) + tag + ext;	
+			if (!dummy) {
+				selectImage(id1); 				
 				run("Duplicate...", "duplicate channels="+c);
-				idc = getImageID();
-				oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + "_channel_" + IJ.pad(s,2) + tag + ext;	
+				idc = getImageID();								
 				print("Saving serie "+ s +"/" + (s1-s0+1) + " to "+ oname);	
 				saveAs(format,oname);	
 				selectImage(idc);
 				close();
-			}
-		} else {
-			oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + tag + ext;
+			} else {
+				print("Serie " + s + "Channel "+c+ " will be saved in " + oname);
+			}			
+		}
+	} else {
+		oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + tag + ext;
+		if (!dummy) {
 			print("Saving serie "+ s +"/" + (s1-s0+1) + " to "+ oname);	
 			saveAs(format,oname);
+		} else {
+			print("Serie " + s + " will be saved in " + oname);
 		}
-		selectImage(id1); close();		
 	}
-	setResult("Serie Index", s-1,s);
-	setResult("Output  file", s-1, File.getName(oname));	
-	setResult("Serie name", s-1, seriesName);
-	setResult("Width", s-1, sizeX);
-	setResult("Height", s-1, sizeY);
-	setResult("Slices", s-1, sizeZ);
-	setResult("Frames", s-1, sizeT);
-	
+	if (!dummy) {selectImage(id1); close();	}
+
+	setResult("Serie Index", nR0, s);
+	setResult("Output  file", nR0, File.getName(oname));	
+	setResult("Serie name", nR0, seriesName);
+	setResult("Width", nR0, sizeX);
+	setResult("Height", nR0, sizeY);
+	setResult("Slices", nR0, sizeZ);
+	setResult("Channels", nR0, sizeC);
+	setResult("Frames", nR0, sizeT);
+	nR0 = nR0 + 1;
 }
 Ext.close();
 setBatchMode("exit and display");
