@@ -4,7 +4,7 @@
 clear all
 
 lambda = 600;
-NA = 1.;
+NA = 1.45;
 
 
 %% What is the relationshop between the std of a gaussian and the rayleight criterion
