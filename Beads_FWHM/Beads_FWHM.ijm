@@ -28,6 +28,7 @@ if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
 setBatchMode(true);
 
 // run the spot detection on the specified channel
+Stack.setChannel(channel);
 detect3DSpots(channel, spot_size, pfa);
 
 // add the particles to the ROI manager
@@ -54,8 +55,9 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 	} else {
 		ps = pw;
 	}
-	gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
-	L = 6*spot_size;
+	//gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
+	gamma = 2.355;
+	L = 3*spot_size;
 	n = roiManager("count");
 	i0 = nResults;	
 	if (!isOpen("Beads_FWHM.csv")) {
@@ -70,7 +72,8 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
     	List.setMeasurements(); 	
 		x0 = (List.getValue("XM"))/pw-0.5;
 		y0 = (List.getValue("YM"))/ph-0.5;
-		Stack.getPosition(channel, z0, frame);
+		Stack.getPosition(_channel, z0, frame);// Roi has wrong channel info
+		Stack.setPosition(channel,z0,frame);
 		k = i0 + i;
 		Table.set("System", k, system);
 		Table.set("Image", k, getTitle());
@@ -82,14 +85,13 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 
 		if (false) {
 			profile = circularAverage(x0,y0,10,L);
-			radius = getRadiusValues(profile.length);		
+			radius = getRadiusValues(profile.length,ps);	
 			Fit.doFit("Gaussian (no offset)", radius, profile, newArray(1,0,0.21 * wavelength_nm / numerical_aperture * pw));			
 			c = Fit.p(2);
 		} else {
-			vals = circularFit(x0,y0,10,L, 0.21 * wavelength_nm / numerical_aperture * pw);
-			Array.getStatistics(vals, min, max, c, stdDev);		
-		}		
-		c = c * ps;						
+			vals = circularFit(x0,y0,20,L, 0.21 * wavelength_nm / numerical_aperture,ps);
+			Array.getStatistics(vals, min, max, c, stdDev);
+		}
 		c = sqrt(c * c - bead_size_nm * bead_size_nm / 16);
 		Table.set("STD [nm]", k, c);
 		Table.set("FWHM [nm]", k, gamma * c);
@@ -103,7 +105,7 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 	}
 }
 
-function circularFit(x0,y0,N,L,s0) {
+function circularFit(x0,y0,N,L,s0,ps) {
 	getPixelSize(unit, pw, ph, pd);
 	makeOval(x0-L+0.5,y0-L+0.5,2*L,2*L);	
 	run("Add Selection...");
@@ -112,18 +114,22 @@ function circularFit(x0,y0,N,L,s0) {
 		makeLine(x0-L*cos(PI*i/N), y0-L*sin(PI*i/N),x0+L*cos(PI*i/N), y0+L*sin(PI*i/N));		
 		run("Add Selection...");
 		profile = getProfile();
-		radius = getRadiusValues(profile.length);
-		Fit.doFit("Gaussian (no offset)", radius, profile, newArray(1,0,s0));		
-		vals[i]= Fit.p(2);		
+		Array.getStatistics(profile, ymin, ymax);
+		for (k = 0; k < profile.length; k++) {
+			profile[k] = (profile[k] - ymin) / (ymax-ymin);
+		}
+		radius = getRadiusValues(profile.length,ps);
+		Fit.doFit("Gaussian", radius, profile, newArray(0,1,0,s0));
+		vals[i]= Fit.p(3);		
 	}
 	run("Select None");
 	return vals;
 }
 
-function getRadiusValues(N) {	
+function getRadiusValues(N,ps) {
 	radius = newArray(N);			
 	for (k = 0; k < N; k++) {
-		radius[k] = (k-radius.length/2);			
+		radius[k] = (k - N / 2) * ps;			
 	}
 	return radius;
 }
@@ -151,8 +157,6 @@ function circularAverage(x0,y0,N,L) {
 	Overlay.show();
 	return avg;
 }
-
-
 
 function detect3DSpots(channel, size, pfa) {	
 	Stack.getDimensions(width, height, channels, slices, frames);
