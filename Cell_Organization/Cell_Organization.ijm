@@ -203,13 +203,14 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	
 	measureROIStats(id, dist, nrois, objects, obj_channel, condition, channel_names, filename, keys, vals);
 	
-	selectImage(dist); close();
 	selectImage(id);
 	run("Make Composite");	
 	roiManager("show none");
 	Overlay.remove;
 	addOverlays(nrois, true);
-	addOverlays(objects, false);	
+	addOverlays(objects, false);
+	addDistOverlay(id,dist);	
+	selectImage(dist); close();
 	closeRoiManager();		
 }
 
@@ -236,13 +237,29 @@ function addOverlays(rois, addlabel) {
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	for (i = 0; i < rois.length; i++) {	
 		roiManager("select", rois[i]);
-		Overlay.addSelection(Roi.getStrokeColor, 1);
+		Overlay.addSelection(Roi.getStrokeColor, 0.5);
 		Overlay.add();		
 		if (addlabel) {
 			setColor("white");
 			Overlay.drawString(""+rois[i]+1, getValue("X")/pixelWidth-5, getValue("Y")/pixelHeight);			
 			Overlay.add();
 		}
+		Overlay.show();
+	}
+}
+
+function addDistOverlay(id,dist) {
+	selectImage(dist);
+	N = nSlices;	
+	for (n=1;n<=N;n++) {
+		selectImage(dist);
+		setSlice(n);
+		setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
+		run("Create Selection");
+		selectImage(id);				
+		run("Restore Selection");
+		Overlay.addSelection("White", 1);
+		Overlay.add();
 		Overlay.show();
 	}
 }
@@ -350,10 +367,11 @@ function getValues(id, slice, xpoints, ypoints) {
 }
 
 function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, channel_names, image_name, keys, vals) {	
-	N = 10;
+	N = 10; // number of radial intensities measured
 	// compute object spread and other statistics for each ROI
 	selectImage(id);
 	getPixelSize(unit, pixelWidth, pixelHeight);
+	run("Subtract Background...", "rolling=10");
 	// initialize accumulators
 	swx = newArray(rois.length);
 	swx2 = newArray(rois.length);
@@ -373,7 +391,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			selectImage(dist);
 			setSlice(k);
 			roiManager("select", objects[i]);
-			val = getValue("Min");			
+			val = getValue("Min");		
 			// if the minimum distance in the object is more than OUTOFBOUND, the object is considered for analysis
 			if (val > OUTOFBOUND) {
 				count[k-1] = count[k-1] + 1;				
@@ -427,6 +445,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			radial_intensity[dindex + N * (k-1)] = radial_intensity[dindex + N * (k-1)] / a;
 		}
 	}
+	
 	selectImage(id);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	roitbl = "Regions of interest";
@@ -444,16 +463,26 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			Table.set("Object channel"  , n, channel_names[obj_channel-1]);
 			Table.set("Image"        , n, File.getName(image_name));
 			Table.set("roiID"        , n, index+1);	
-			for (c = 1; c <= channels; c++) {
-				selectImage(dist);
-				setSlice(index + 1);
+			// Mean Intensity Measures
+			selectImage(dist);
+			ndist = nSlices;
+			if (k + 1 >= 0 && k + 1 <= ndist) {
+				setSlice(k + 1);
 				setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
 				run("Create Selection");
-				selectImage(id);				
-				Stack.setChannel(c);
-				run("Restore Selection");
-				Table.set("ROI Mean "+channel_names[c-1]+"", n, getValue("Mean"));
+				for (c = 1; c <= channels; c++) {
+					selectImage(id);				
+					Stack.setChannel(c);
+					run("Restore Selection");
+					Table.set("ROI Mean "+channel_names[c-1]+"", n, getValue("Mean"));
+				}
+			} else {					
+				print("*** Warning ROI "+ (k+1) +" has no distance map (nSlices:"+ndist+") ***");
+				for (c = 1; c <= channels; c++) {
+					Table.set("ROI Mean "+channel_names[c-1]+"", n, getValue("Mean"));
+				}
 			}
+			
 			Table.set("Object Area"  , n, area[k]);
 			Table.set("Object Count"  , n, count[k]);
 			Table.set("Object Spread", n, spread[k]);
