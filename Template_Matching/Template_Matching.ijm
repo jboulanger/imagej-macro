@@ -1,5 +1,5 @@
-@Integer (label="Channel",value=1) channel
-#@Float (label="Downsampling", value=1) zoom 
+#@Integer (label="Channel",value=1) channel
+#@Float (label="Downsampling", value=4) zoom 
 #@Float (label="Threshold", value=0.5) threshold
 #@Boolean (label="Average", value=true) average
 
@@ -16,8 +16,8 @@
 if (nImages==0) {
 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager"); run("Close");}
 	run("Dot Blot");
-	makeRectangle(22, 28, 28, 28);
-	roiManager("add");
+	makeRectangle(22, 28, 28, 28);	
+	roiManager("add");	
 }
 
 setBatchMode("hide");
