@@ -50,10 +50,13 @@ setBatchMode(false);
 
 function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,spot_size) {
 	getPixelSize(unit, pw, ph, pd);	
+	Stack.getDimensions(width, height, channels, slices, frames);
 	if (matches(unit,"microns")||matches(unit,"µm")||matches(unit,"micron"))	{
-			ps = pw * 1000;			
+		ps = pw * 1000;
+		zspacing = pd * 1000;
 	} else {
 		ps = pw;
+		zspacing = pd;
 	}
 	//gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
 	gamma = 2.355;
@@ -93,7 +96,13 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 			Array.getStatistics(vals, min, max, c, stdDev);
 		}
 		c = sqrt(c * c - bead_size_nm * bead_size_nm / 16);
-		Table.set("STD [nm]", k, c);
+	
+		Table.set("STD XY [nm]", k, c);
+		if (slices > 1) {
+			cz = axialFit(x0,y0,z0,zspacing);
+			cz = sqrt(cz * cz - bead_size_nm * bead_size_nm / 16);
+			Table.set("STD Z [nm]", k, cz);
+		}
 		Table.set("FWHM [nm]", k, gamma * c);
 		Table.set("Abbe [nm]", k, gamma*c/0.514*0.5);		
 		Table.set("Sparrow [nm]", k, gamma*c/0.514*0.47);
@@ -101,8 +110,27 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		Table.set("Ratio [%]", k, gamma *c / (0.514 * wavelength_nm / numerical_aperture)*100);	
 		Table.set("Wavelength [nm]", k, wavelength_nm);
 		Table.set("Numerical aperture", k, numerical_aperture);
-		Table.set("Bead size [nm] ", k, bead_size_nm);		
+		Table.set("Bead size [nm] ", k, bead_size_nm);
 	}
+}
+
+function axialFit(x0,y0,z0,spacing) {
+	Stack.getDimensions(width, height, channels, slices, frames);
+	X = newArray(slices);
+	Y = newArray(slices);
+	for (k = 1; k <= slices; k++) {		
+		Stack.setSlice(k);
+		makeOval(x0-2, y0-2, 4, 4);
+		Y[k-1] = getValue("Max");
+		X[k-1] = (k - z0) * spacing;
+	}
+	Array.getStatistics(Y, ymin, ymax);
+	for (k = 0; k < Y.length; k++) {
+			Y[k] = (Y[k] - ymin) / (ymax-ymin);
+	}
+	Fit.doFit("Gaussian", X, Y, newArray(0,1,0,600));
+	run("Select None");
+	return Fit.p(3);
 }
 
 function circularFit(x0,y0,N,L,s0,ps) {
