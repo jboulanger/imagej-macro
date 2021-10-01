@@ -12,6 +12,9 @@
  *  Compute the full width half max of beads and other resolution criterion based on a Gaussian fit
  *  of the bead.
  *  
+ *  Results are saved into a table
+ *  
+ *  
  *  Jerome Boulanger 2021 for Nick Barry
  */
 
@@ -58,8 +61,8 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		ps = pw;
 		zspacing = pd;
 	}
-	//gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
-	gamma = 2.355;
+	gamma = 2.4177;// ratio between the FWHM of the Airy function and the std of the Gaussian function		
+	//gamma = 2.355;// ratio between the FWHM of the Gaussian function and its std
 	L = 3*spot_size;
 	n = roiManager("count");
 	i0 = nResults;	
@@ -75,17 +78,21 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
     	List.setMeasurements(); 	
 		x0 = (List.getValue("XM"))/pw-0.5;
 		y0 = (List.getValue("YM"))/ph-0.5;
-		Stack.getPosition(_channel, z0, frame);// Roi has wrong channel info
+		// Roi has wrong channel info because it was create on a duplicated channel
+		Stack.getPosition(_channel, z0, frame);
 		Stack.setPosition(channel,z0,frame);
 		k = i0 + i;
 		Table.set("System", k, system);
 		Table.set("Image", k, getTitle());
 		Table.set("Channel",k,channel);
+		Table.set("Wavelength [nm]", k, wavelength_nm);
+		Table.set("Numerical aperture", k, numerical_aperture);
+		Table.set("Bead size [nm] ", k, bead_size_nm);
+		
 		Table.set("X [px]", k, x0);
 		Table.set("Y [px]", k, y0);
 		Table.set("Z [px]", k, z0);	
-		Table.set("Pixel size [nm]", k, ps);
-
+		Table.set("Pixel size [nm]", k, ps);
 		if (false) {
 			profile = circularAverage(x0,y0,10,L);
 			radius = getRadiusValues(profile.length,ps);	
@@ -94,7 +101,9 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		} else {
 			vals = circularFit(x0,y0,20,L, 0.21 * wavelength_nm / numerical_aperture,ps);
 			Array.getStatistics(vals, min, max, c, stdDev);
+			Array.getStatistics(vals, cmin, cmax, c, stdDev);
 		}
+				
 		c = sqrt(c * c - bead_size_nm * bead_size_nm / 16);
 	
 		Table.set("STD XY [nm]", k, c);
@@ -108,9 +117,9 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		Table.set("Sparrow [nm]", k, gamma*c/0.514*0.47);
 		Table.set("Rayleigh [nm]", k, gamma*c/0.514*0.61);
 		Table.set("Ratio [%]", k, gamma *c / (0.514 * wavelength_nm / numerical_aperture)*100);	
-		Table.set("Wavelength [nm]", k, wavelength_nm);
-		Table.set("Numerical aperture", k, numerical_aperture);
-		Table.set("Bead size [nm] ", k, bead_size_nm);
+	
+		Table.set("STD XY min [nm]", k, cmin);
+		Table.set("STD XY max [nm]", k, cmax);
 	}
 }
 
@@ -147,7 +156,7 @@ function circularFit(x0,y0,N,L,s0,ps) {
 			profile[k] = (profile[k] - ymin) / (ymax-ymin);
 		}
 		radius = getRadiusValues(profile.length,ps);
-		Fit.doFit("Gaussian", radius, profile, newArray(0,1,0,s0));
+		Fit.doFit("Gaussian", radius, profile, newArray(0,1,0, s0));
 		vals[i]= Fit.p(3);		
 	}
 	run("Select None");
@@ -188,7 +197,6 @@ function circularAverage(x0,y0,N,L) {
 
 function detect3DSpots(channel, size, pfa) {	
 	Stack.getDimensions(width, height, channels, slices, frames);
-	print("slices="+slices);
 	run("Select None");
 	sigma1 = size;
 	sigma2 = 2 * size;

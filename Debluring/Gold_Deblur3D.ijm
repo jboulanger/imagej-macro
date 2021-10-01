@@ -41,7 +41,7 @@ function gold_deblur(sx, sy, sz, iter) {
 	run("32-bit");	
 	// and substract its minimum - offset to avoid dividing by 0
 	getRawStatistics(nPixels, mean, min);
-	run("Subtract...", "value=" + (min - 5));	
+	run("Subtract...", "value=" + (min - 5)+ " stack");	
 	data = getImageID();	
 	// Duplicate the data image to create the initialization
 	run("Duplicate...", "duplicate");
