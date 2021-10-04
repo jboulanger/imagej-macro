@@ -9,6 +9,7 @@
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Remove ROI touching image borders", value=true) remove_border
 #@Boolean (label="Make band", value=true) makeband
+#@Boolean (label="Mask background", value=true) maskbg
 #@Float   (label="Distance min [um]", value=0) distance_min
 #@Float   (label="Distance max [um]", value=30) distance_max
 
@@ -33,6 +34,8 @@ var OUTOFBOUND = -100000; // flag value for out of bound
 
 starttime = getTime(); 
 
+print("\\Clear");
+
 // convert the string of channels to an array
 channel_names = split(channel_names_str,',');
 
@@ -53,6 +56,10 @@ if (nImages !=0 ) {
 		generateTestImage();
 		filename = getTitle();
 		setBatchMode("hide");
+		roi_channel = 1;
+		obj_channel = 2;
+		downsampling_factor = 2;
+		channel_names = newArray("ROI","Objects");
 		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
 		setBatchMode("exit and display");
 	} else if (endsWith(filename, ".csv")) {
@@ -87,7 +94,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 	keys = listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel"));	
 	vals = newArray(keys.length);
 	for (n = 0; n < N; n++) {
-		print("Image "+n+"/"+N);
+		print("Image "+(n+1)+"/"+N);
 		selectWindow(name);
 		filename = Table.getString("Filename", n);
 		if (hasCondition) {
@@ -95,7 +102,9 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		}
 		if (hasChannelNames) {
 			channel_names_str = Table.getString("Channel Names", n);			
-			channel_names = split(substring(channel_names_str, 1, lengthOf(channel_names_str)-1),",");
+			//channel_names = split(substring(channel_names_str, 1, lengthOf(channel_names_str)-1),",");
+			channel_names = split(channel_names_str,",");
+			
 		}
 		if (hasROI) {
 			roi_channel = Table.getString("ROI Channel", n);
@@ -110,6 +119,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
 		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);		
 		close();
+		print("\n");
 	}	
 }
 
@@ -165,11 +175,20 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	 * 	- resample the image
 	 * 	- segment ROI in roi_channel
 	 * 	- compute distance map 
+	 * 	- measure spread entropy and other features
 	 */
+	chstr = "Channel Names : ";
+	for (i = 0; i < channel_names.length; i++) {
+		channel_names[i] = String.trim(channel_names[i]);
+		chstr += channel_names[i];
+		if (i != channel_names.length-1) {chstr+=",";}
+	}	
+	print(chstr);
+	 
 	closeRoiManager();	
 	run("Stack to Hyperstack...", "order=xyczt(default) channels="+nSlices+" slices=1 frames=1 display=Color");	
 	if (downsampling_factor != 1) {
-		print("Downsampling by a "+ downsampling_factor + "x");
+		print(" - Downsampling by a "+ downsampling_factor + "x");
 		w = round(getWidth()/downsampling_factor);
 		h = round(getWidth()/downsampling_factor);
 		run("Size...", "width="+w+" height="+h+" constrain average interpolation=None");		
@@ -191,16 +210,19 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	} else {
 		nrois = rois;
 	}
-
-	bg = segmentBackground(id, obj_channel);	
-	applyBackground(dist, bg);
-	selectImage(bg); close();
+	
+	if (maskbg) {
+		bg = segmentBackground(id, obj_channel);	
+		applyBackground(dist, bg);	
+		selectImage(bg); close();
+	}
 	
 	if (makeband) {
 		print(" - Make bands");
 		makeBandROI(dist, nrois, distance_min, distance_max);
 	}
 	
+	print(" - measure statistics per ROI");
 	measureROIStats(id, dist, nrois, objects, obj_channel, condition, channel_names, filename, keys, vals);
 	
 	selectImage(id);
@@ -211,7 +233,8 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	addOverlays(objects, false);
 	addDistOverlay(id,dist);	
 	selectImage(dist); close();
-	closeRoiManager();		
+	closeRoiManager();	
+	run("Collect Garbage");	
 }
 
 function applyBackground(dist, bg) {
@@ -265,7 +288,7 @@ function addDistOverlay(id,dist) {
 }
 
 function generateTestImage() {
-	newImage("Test image", "8-bit composite-mode", 500, 500, 3, 1, 1);
+	newImage("Test image", "8-bit composite-mode", 500, 500, 2, 1, 1);
 	run("Add Noise");
 	run("Gaussian Blur...", "sigma=20");
 	setSlice(1); run("Blue");
@@ -470,6 +493,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 				setSlice(k + 1);
 				setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
 				run("Create Selection");
+				Table.set("ROI Area", n, getValue("Area"));
 				for (c = 1; c <= channels; c++) {
 					selectImage(id);				
 					Stack.setChannel(c);
@@ -735,8 +759,9 @@ function segmentBackground(id, channel) {
 	 */
 	selectImage(id);
 	run("Duplicate...", "duplicate channels="+channel);
-	run("Median...", "radius=5");
-	setAutoThreshold("Huang dark");
+	run("Median...", "radius=2");	
+	run("Convert to Mask");
+	setAutoThreshold("Percentile dark");
 	run("Convert to Mask");	
 	run("Fill Holes");
 	return getImageID;
@@ -792,6 +817,33 @@ function convertImageToArray() {
 		}
 	}
 	return A;
+}
+
+function defineThreshold(logpfa) {
+	 // Define a threshold based on a probability of false alarm (<0.5)
+	 st = laplaceparam();
+	 pfa = pow(10,logpfa);
+	 if (pfa > 0.5) {
+	 	return st[0] + st[1]*log(2*pfa);
+	 } else {
+	 	return st[0] - st[1]*log(2*pfa);
+	 }
+}
+
+function laplaceparam() {
+	// compute laplace distribution parameters 
+	getHistogram(values, counts, 256);
+	n = getWidth() * getHeight();
+	c = 0;
+	for (i = 0; i < counts.length && c <= n/2; i++) {
+		c = c + counts[i];
+	}
+	m = values[i-1];
+	b = 0;
+	for (i = 0; i < counts.length; i++){
+		b = b + abs(values[i] - m) * counts[i];
+	}
+	return newArray(m,b/n);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////

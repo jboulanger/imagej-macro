@@ -124,6 +124,8 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 }
 
 function axialFit(x0,y0,z0,spacing) {
+	/* Fit a Gaussian function axially */	 
+	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	X = newArray(slices);
 	Y = newArray(slices);
@@ -143,6 +145,9 @@ function axialFit(x0,y0,z0,spacing) {
 }
 
 function circularFit(x0,y0,N,L,s0,ps) {
+	/* Fit a Gaussian function on profiles extracted over a set of N lines of length L
+	 *  Returns a vector of the standard deviation of the profiles
+	*/	 
 	getPixelSize(unit, pw, ph, pd);
 	makeOval(x0-L+0.5,y0-L+0.5,2*L,2*L);	
 	run("Add Selection...");
@@ -164,6 +169,7 @@ function circularFit(x0,y0,N,L,s0,ps) {
 }
 
 function getRadiusValues(N,ps) {
+	/* Get the N values of radius sampled every ps */	 
 	radius = newArray(N);			
 	for (k = 0; k < N; k++) {
 		radius[k] = (k - N / 2) * ps;			
