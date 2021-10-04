@@ -417,14 +417,13 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			val = getValue("Min");		
 			// if the minimum distance in the object is more than OUTOFBOUND, the object is considered for analysis
 			if (val > OUTOFBOUND) {
-				count[k-1] = count[k-1] + 1;				
+				count[k-1] = count[k-1] + 1;
 				distance[k-1] = distance[k-1] + getValue("Mean");				
 				// get the coordinates of points inside the object ROI
 				roiManager("select", objects[i]);				
 				Roi.getContainedPoints(xpoints, ypoints);
 				// get the distances values
-				di = getValues(dist, k, xpoints, ypoints);
-				
+				di = getValues(dist, k, xpoints, ypoints);				
 				// get the intensity values
 				w = getValues(id, obj_channel, xpoints, ypoints);				
 				// compute all accumulators
