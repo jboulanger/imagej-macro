@@ -2,26 +2,23 @@
 #@String  (label="Group",description="Experimental condition", value="control") condition
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
-#@Boolean (label="Segment Nuclei with StarDist", value=false) use_stardist
-#@Float   (label="ROI specificity", value=2.0) roi_logpfa
+#@Float   (label="ROI specificity", value=3, min=1, max=10, style="slider") roi_logpfa
 #@Integer (label="Object channel", value=2) obj_channel
-#@Float   (label="Object specificity", value=2.0) obj_logpfa
+#@Float   (label="Object specificity", value=8, min=1, max=10, style="slider") obj_logpfa
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Remove ROI touching image borders", value=true) remove_border
-#@Boolean (label="Make band", value=true) makeband
-#@Boolean (label="Mask background", value=true) maskbg
 #@Float   (label="Distance min [um]", value=0) distance_min
 #@Float   (label="Distance max [um]", value=30) distance_max
 
 /*
  * Analysis of the spatial distribution (spread) of markers
  * 
- * Objects in one channel are belonging to ROI defined in another channel.
+ * Objects are belonging to ROI.
  * 
- * If an image is opened: the macro will process the image
+ * Works for multi channel images
  * 
  * Input file: if a single image file process the image, if a csv file load condition and filename from the csv file
- * for batch processing. The csv file should have the columns condition, filename.
+ * for batch processing.
  * 
  * - Measure intensity for each ROI
  * - Measure spread of objects for each ROI
@@ -31,240 +28,101 @@
 
 
 var OUTOFBOUND = -100000; // flag value for out of bound
+tbl1 = "Objects.csv";
+tbl2 = "Regions of interest.csv";
 
 starttime = getTime(); 
 
-print("\\Clear");
-
-// convert the string of channels to an array
-channel_names = split(channel_names_str,',');
-
-// inialize default keys, vals list to empty array
-keys = newArray("ROI Specificity", "Object Specificity", "Zoom", "Mask Background");
-vals = newArray(roi_logpfa, obj_logpfa, downsampling_factor, maskbg);
-
-
 if (nImages !=0 ) {
 	// First mode: process the opened image
-	print("\n_____________________\nProcessing opened image");
+	print("Processing opened image");
 	filename = getTitle();
 	setBatchMode("hide");
-	process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+	process_image(filename, condition, roi_channel, obj_channel, downsampling_factor);	
 	setBatchMode("exit and display");
 } else {
-	if (matches(File.getName(filename),"test")) {
-		print("\n_____________________\nProcessing a test image");
-		generateTestImage();
-		filename = getTitle();
-		setBatchMode("hide");
-		roi_channel = 1;
-		obj_channel = 2;
-		downsampling_factor = 2;
-		channel_names = newArray("ROI","Objects");
-		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
-		setBatchMode("exit and display");
-	} else if (endsWith(filename, ".csv")) {
+	if (endsWith(filename, ".csv")) {
 		// Second mode: process the list of files
-		print("\n_____________________\nProcessing list of files");		
-		process_list_of_files(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor);		
+		print("Processing list of files");		
+		process_list_of_files(filename, roi_channel, obj_channel, downsampling_factor);		
 	} else {
 		// Third mode: process a single file
-		print("\n_____________________\nProcessing single file");
-		process_single_file(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
-	}
+		print("Processing single file");		
+		process_single_file(filename, condition, roi_channel, obj_channel, downsampling_factor);		
+	}	
 }
 
 print("Processing finised in " + (getTime() - starttime)/60000 + "min");	
 
-function process_list_of_files(tablename, condition, channel_names, roi_channel, obj_channel, downsampling_factor) {
-	/*
-	 * Process a files listed in a csv file 'tablename'
-	 * The table can have the columns 'Filename', 'Condition', 'Channel Names', 'ROI channel', 'Object Channel'
-	 * 
-	 * Channel Names are coma separated names between double quotes : "A,B,C,D"
-	 */
+
+function process_list_of_files(tablename, roi_channel, obj_channel, downsampling_factor) {
 	setBatchMode("hide");
-	Table.open(tablename);	
+	Table.open(tablename);
 	N = Table.size;
 	name = File.getName(tablename);
-	path = File.getDirectory(tablename);
-	hasCondition = isColumnInTable("Condition");
-	hasChannelNames = isColumnInTable("Channel Names");
-	hasROI = isColumnInTable("ROI Channel");
-	hasOBJ = isColumnInTable("Object Channel");
-	keys = Array.concat(keys, listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel")));	
-	vals = Array.concat(vals, newArray(keys.length));
-	start_time = getTime();
 	for (n = 0; n < N; n++) {
-		if (n==0) {
-			print("Image "+(n+1)+"/"+N + "");
-		} else {
-			rtime = (N-n) / n * (getTime() - start_time);
-			print("Image "+(n+1)+"/"+N + " remaining time " + rtime +"min");
-		}
+		print("Image "+n+"/"+N);
 		selectWindow(name);
-		filename = Table.getString("Filename", n);
-		if (hasCondition) {
-			condition = Table.getString("Condition", n);		
-		}
-		if (hasChannelNames) {
-			channel_names_str = Table.getString("Channel Names", n);			
-			//channel_names = split(substring(channel_names_str, 1, lengthOf(channel_names_str)-1),",");
-			channel_names = split(channel_names_str,",");			
-		}
-		if (hasROI) {
-			roi_channel = Table.getString("ROI Channel", n);
-		}
-		if (hasOBJ) {
-			obj_channel = Table.getString("Object Channel", n);
-		}
-		for (i = 0; i < keys.length; i++) {
-			vals[i] = Table.getString(keys[i], n);
-		}
-		print("Loading " + filename + " with condition " + condition);		
-		run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
-		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);		
+		condition = Table.getString("condition", n);
+		filename = Table.getString("filename", n);			
+		print("Loading " + filename);
+		run("Bio-Formats Importer", "open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");	
+		process_image(filename, condition, roi_channel, obj_channel, downsampling_factor);	
 		close();
-		print("\n");
 	}	
 }
 
-function isColumnInTable(colname) {
-	/*
-	 * Return true if the table has a column with name 'colname'
-	 */
-	headers = split(Table.headings(),'\t');
-	for (k = 0; k < headers.length; k++) {
-		if (matches(headers[k], colname)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-function listOtherColumns(colnames) {
-	/*
-	 * Return an array with the columns name which are not in colnames
-	 */
-	headers = split(Table.headings(),'\t');
-	other = headers;
-	j = 0;
-	for (k = 0; k < headers.length; k++) {
-		keep = true;
-		for (i = 0; k < colnames.length && keep; i++) {
-			if (matches(headers[k], colnames[i])) {
-				keep = false;
-			}
-		}
-		if (keep) {
-			other[j] = headers[k];
-			j = j + 1;
-		}
-	}	
-	return Array.trim(other,j);
-}
-
-function process_single_file(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals) {
+function process_single_file(filename, condition, roi_channel, obj_channel, downsampling_factor) {
 	/* 
 	 *  Process a single file and close the images at exit
 	 */	
 	print("Loading " + filename);
 	run("Bio-Formats Importer", "open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");	
 	setBatchMode("hide");
-	process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+	process_image(filename, condition, roi_channel, obj_channel, downsampling_factor);	
 	setBatchMode("exit and display");
 }
 
-function process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals) {
-	/*	
-	 * 	Process the opened image
-	 * 	- resample the image
-	 * 	- segment ROI in roi_channel
-	 * 	- compute distance map 
-	 * 	- measure spread entropy and other features
-	 */
-	chstr = "Channel Names : ";
-	for (i = 0; i < channel_names.length; i++) {
-		channel_names[i] = String.trim(channel_names[i]);
-		channel_names[i] = replace(channel_names[i],"\"","");
-		chstr += "[" + toString(i+1) + ":" +channel_names[i] + "]";
-		if (i != channel_names.length-1) {chstr+=", ";}
-	}	
-	print(chstr);
-	 
+function process_image(filename, condition, roi_channel, obj_channel, downsampling_factor) {	
 	closeRoiManager();	
 	run("Stack to Hyperstack...", "order=xyczt(default) channels="+nSlices+" slices=1 frames=1 display=Color");	
-	if (downsampling_factor != 1) {
-		print(" - Downsampling by a "+ downsampling_factor + "x");
+	if (downsampling_factor != 1) {		
 		w = round(getWidth()/downsampling_factor);
 		h = round(getWidth()/downsampling_factor);
 		run("Size...", "width="+w+" height="+h+" constrain average interpolation=None");		
 	}
-	id = getImageID;
+	id = getImageID;	
 	
-	Stack.getDimensions(width, height, channels, slices, frames);
-	if (channel_names.length != channels) {
-		exit("*** Error not enough channel names !***");
-		return 1;
-	}
-	
-	if (use_stardist) {
-		rois = segmentStarDist(getImageID, roi_channel);
-	} else {
-		rois = segment(getImageID, roi_channel, false, 20, roi_logpfa, 10, true);
-	}
-	
-	objects = segment(getImageID, obj_channel, true, 2, obj_logpfa, 1, false);
-	
-	dist = createSignedDistanceStack(id,rois);	
-	
+	rois =  segment(getImageID, roi_channel, false, 100, roi_logpfa, 100, true);	
+	dist = createSignedDistanceStack(id,rois);
 	if (remove_border) {
 		nrois = keepRoiNotTouchingImageEdges(rois,dist,10);
 	} else {
 		nrois = rois;
 	}
-	
-	if (maskbg) {
-		bg = segmentBackground(id, obj_channel, downsampling_factor);
-		applyBackground(dist, bg);	
-		selectImage(bg); close();
+
+	// segment all other channels	
+	roi_channel = newArray(); // store the channel of the ROI
+	all_childs = newArray();
+	thresholds = newArray(channels);
+	for (c = 1; c < channels; c++)  if( c != roi_channel) {
+		child = segment(getImageID, obj_channel, true, 10, obj_logpfa, 20, false);		
+		roi_col = newArray(childs.length);
+		for (i = 0; i < roi_col.length; i++) { roi_col[i] = c; }
+		roi_channel = Array.concat(roi_channel, roi_col);
+		all_childs = Array.concat(all_childs, objects);
 	}
 	
-	if (makeband) {
-		print(" - Make bands");
-		makeBandROI(dist, nrois, distance_min, distance_max);
-	}
-	
-	print(" - measure statistics per ROI");
-	measureROIStats(id, dist, nrois, objects, obj_channel, condition, channel_names, filename, keys, vals);
-	
+	//makeBandROI(dist, nrois, distance_min, distance_max);
+	measureROIStats(id, dist, nrois, objects, obj_channel, condition, filename);
+	selectImage(dist); close();
 	selectImage(id);
 	run("Make Composite");	
 	roiManager("show none");
 	Overlay.remove;
 	addOverlays(nrois, true);
-	addOverlays(objects, false);
-	addDistOverlay(id,dist);	
-	selectImage(dist); close();
-	closeRoiManager();	
-	run("Collect Garbage");
-	return 0;
-}
-
-function applyBackground(dist, bg) {
-	/*
-	 * Set distance stack values to outofbound if in background
-	 */
-	selectImage(bg);
-	run("Create Selection");	
-	run("Make Inverse");
-	selectImage(dist);
-	setColor(OUTOFBOUND);
-	for (k = 1 ; k <= nSlices; k++) {
-		setSlice(k);
-		run("Restore Selection");
-		fill();
-	}
+	addOverlays(objects, false);	
+	closeRoiManager();		
 }
 
 function addOverlays(rois, addlabel) {	
@@ -274,8 +132,8 @@ function addOverlays(rois, addlabel) {
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	for (i = 0; i < rois.length; i++) {	
 		roiManager("select", rois[i]);
-		Overlay.addSelection(Roi.getStrokeColor, 0.5);
-		Overlay.add();		
+		Overlay.addSelection(Roi.getStrokeColor, 1);
+		Overlay.add();
 		if (addlabel) {
 			setColor("white");
 			Overlay.drawString(""+rois[i]+1, getValue("X")/pixelWidth-5, getValue("Y")/pixelHeight);			
@@ -285,24 +143,9 @@ function addOverlays(rois, addlabel) {
 	}
 }
 
-function addDistOverlay(id,dist) {
-	selectImage(dist);
-	N = nSlices;	
-	for (n=1;n<=N;n++) {
-		selectImage(dist);
-		setSlice(n);
-		setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
-		run("Create Selection");
-		selectImage(id);				
-		run("Restore Selection");
-		Overlay.addSelection("White", 1);
-		Overlay.add();
-		Overlay.show();
-	}
-}
 
 function generateTestImage() {
-	newImage("Test image", "8-bit composite-mode", 500, 500, 2, 1, 1);
+	newImage("Test image", "8-bit composite-mode", 500, 500, 3, 1, 1);
 	run("Add Noise");
 	run("Gaussian Blur...", "sigma=20");
 	setSlice(1); run("Blue");
@@ -344,7 +187,7 @@ function generateTestImage() {
 //                       Measurements
 ///////////////////////////////////////////////////////////////////////////////////
 function createTable(name) {
-	// create a table with title 'name' if it does not exist
+	// creaate a table with title 'name' if it does not exist
 	// return the size of the table
 	if (!isOpen(name)) { Table.create(name);}
 	selectWindow(name);
@@ -362,7 +205,7 @@ function makeBandROI(dist,rois, min, max) {
 		setSlice(k+1);
 		setThreshold(min, max);
 		run("Create Selection");
-		Roi.setStrokeColor("red");		
+		Roi.setStrokeColor(color);
 		roiManager("update");		
 		setSlice(k+1);
 		run("Make Inverse");
@@ -403,12 +246,11 @@ function getValues(id, slice, xpoints, ypoints) {
 	return vals;
 }
 
-function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, channel_names, image_name, keys, vals) {	
-	N = 10; // number of radial intensities measured
+function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, image_name) {	
+	N = 10;
 	// compute object spread and other statistics for each ROI
 	selectImage(id);
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	run("Subtract Background...", "rolling=10");
 	// initialize accumulators
 	swx = newArray(rois.length);
 	swx2 = newArray(rois.length);
@@ -428,16 +270,17 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			selectImage(dist);
 			setSlice(k);
 			roiManager("select", objects[i]);
-			val = getValue("Min");		
+			val = getValue("Min");			
 			// if the minimum distance in the object is more than OUTOFBOUND, the object is considered for analysis
 			if (val > OUTOFBOUND) {
-				count[k-1] = count[k-1] + 1;
+				count[k-1] = count[k-1] + 1;				
 				distance[k-1] = distance[k-1] + getValue("Mean");				
 				// get the coordinates of points inside the object ROI
 				roiManager("select", objects[i]);				
 				Roi.getContainedPoints(xpoints, ypoints);
 				// get the distances values
-				di = getValues(dist, k, xpoints, ypoints);				
+				di = getValues(dist, k, xpoints, ypoints);
+				
 				// get the intensity values
 				w = getValues(id, obj_channel, xpoints, ypoints);				
 				// compute all accumulators
@@ -481,52 +324,31 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 			radial_intensity[dindex + N * (k-1)] = radial_intensity[dindex + N * (k-1)] / a;
 		}
 	}
-	
 	selectImage(id);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	roitbl = "Regions of interest";
-	n = createTable(roitbl);	
+	n = createTable(roitbl);
+	channel_names = split(channel_names_str,',');	
 	for (k = 0; k < rois.length; k++) {
 		if (count[k] > 0) {					
 			index = rois[k];			
 			roiManager("select", index);
 			Table.set("Condition"    , n, condition_name);
 			Table.set("Image"        , n, File.getName(image_name));
-			for (i = 0; i < keys.length; i++) {
-				Table.set(keys[i]        , n, vals[i]);
-			}
 			Table.set("ROI channel"  , n, channel_names[roi_channel-1]);
 			Table.set("Object channel"  , n, channel_names[obj_channel-1]);
 			Table.set("Image"        , n, File.getName(image_name));
 			Table.set("roiID"        , n, index+1);	
-			// Mean Intensity Measures
-			selectImage(dist);
-			ndist = nSlices;
-			if (k + 1 >= 0 && k + 1 <= ndist) {
-				setSlice(k + 1);
-				setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
-				run("Create Selection");
-				Table.set("ROI Area", n, getValue("Area"));
-				for (c = 1; c <= channels; c++) {
-					selectImage(id);				
-					Stack.setChannel(c);
-					run("Restore Selection");					
-					Table.set("ROI Mean "+channel_names[c-1]+"", n, getValue("Mean"));
-				}
-			} else {					
-				print("*** Warning ROI "+ (k+1) +" has no distance map (nSlices:"+ndist+") ***");
-				for (c = 1; c <= channels; c++) {
-					Table.set("ROI Mean "+channel_names[c-1]+"", n, getValue("Mean"));
-				}
+			for (c = 1; c <= channels; c++) {
+				Stack.setChannel(c);
+				Table.set("Mean ["+channel_names[c-1]+"]", n, getValue("Mean"));
 			}
-			
 			Table.set("Object Area"  , n, area[k]);
 			Table.set("Object Count"  , n, count[k]);
 			Table.set("Object Spread", n, spread[k]);
 			Table.set("Object Entropy", n, entropy[k]);
 			Table.set("Object Mean Intensity", n, sw[k]/area[k]);
-			
-			Table.set("Object Mean Distance", n, distance[k]);
+			Table.set("Object Mean Distance", n, distance[k]);	
 			for (dindex = 0; dindex < N; dindex++) {
 				dvalue = round(distance_min + dindex * (distance_max - distance_min) / (N-1));
 				Table.set("Intensity at Distance " + dvalue +" "+ unit, n, radial_intensity[dindex + N * k]);
@@ -689,42 +511,8 @@ function keepRoiNotTouchingImageEdges(roi, dist, b) {
 //                     Segmentation function
 ///////////////////////////////////////////////////////////////////////////////////
 
-function segmentStarDist(id, ch) {
-	// Segment the image with StarDist and returns the list of ROIs
-	print(" - segment  channel #" + ch + " with StarDist");
-	selectImage(id);
-	run("Select None");		
-	run("Duplicate...", "title=[mask-"+ch+"] duplicate channels="+ch);
-	id1 = getImageID();
-	n0 = roiManager("count");	
-	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'mask-"+ch+"', 'modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'1.0', 'percentileTop':'99.8', 'probThresh':'0.5', 'nmsThresh':'0.4', 'outputType':'ROI Manager', 'nTiles':'1', 'excludeBoundary':'2', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
-	n1 = roiManager("count");
-	a = generateSequence(n0,n1-1);
-	cmap = newArray("#5555AA","#55AA55","#FF9999","#FFFF55");
-	for (i = n0; i < n1; i++) {
-		roiManager("select", i);
-		Roi.setStrokeColor(cmap[ch-1]);
-	}
-	selectImage(id1); close();
-	selectImage(id);
-	roiManager("show all without labels");
-	print("   - "+(a.length)+" ROI added");
-	return a;
-}
-
 function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
-	/* segment the channel ch on image image id	
-	 *  id: image ID
-	 *  ch : channel
-	 *  sharpen: sharpen the image first
-	 *  bg : size of the rolling ball in um
-	 *  logpfa : - log10 probability of false alarm
-	 *  minsz : typical diameter
-	 *  fhole : fill holes
-	 */
-	getPixelSize(unit, px, py);
-	r0 = round(1/px); 
-	r1 = 0.25 / px;
+	// segment the channel ch on image image id
 	print(" - segment channel #" + ch + " ( bg = "+bg+", minsize = "+minsz+", fill = "+fholes+" )");
 	selectImage(id);
 	run("Select None");		
@@ -733,24 +521,26 @@ function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
 	id1 = getImageID();
 	getPixelSize(unit, pw, ph);
 	if (sharpen) {		
-		run("Gaussian Blur...", "sigma="+r1);
-		run("Convolve...", "text1=[-0.16 -0.66 -0.16\n -0.66 5 -0.66\n-0.16 -0.66 -0.16\n] ");			
-	} 
-	run("Median...", "radius="+r0);	
-	run("Subtract Background...", "rolling="+(bg/px)+" disable");
+		run("Gaussian Blur...", "sigma=1");
+		run("Convolve...", "text1=[-0.16 -0.66 -0.16\n -0.66 5 -0.66\n-0.16 -0.66 -0.16\n] ");		
+		run("Median...", "radius=1");
+	} else {
+		run("Median...", "radius=5");
+	}
+	run("Subtract Background...", "rolling="+bg+" disable");
 	setImageThreshold(logpfa);
 	run("Convert to Mask");
 	if (fholes) {
 		run("Fill Holes");
 		for (i = 0; i < 5; i++) {
-			run("Maximum...", "radius="+r0);
-			run("Minimum...", "radius="+r0);
-			run("Median...", "radius="+r0);
+			run("Maximum...", "radius=5");
+			run("Minimum...", "radius=5");
+			run("Median...", "radius=5");
 		}
 	}
 	run("Watershed");
 	n0 = roiManager("count");
-	run("Analyze Particles...", "size="+(PI* minsz*minsz/4)+"-Infinity add");
+	run("Analyze Particles...", "size="+minsz+"-Infinity pixel add");
 	n1 = roiManager("count");
 	a = generateSequence(n0,n1-1);
 	// assign a color to the ROI according to the channel
@@ -766,21 +556,6 @@ function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
 	return a;
 }
 
-function segmentBackground(id, channel, zoom) {
-	/* Segment the background and return the image ID */
-	selectImage(id);
-	//run("Duplicate...", "duplicate channels="+channel);
-	run("Z Project...", "projection=[Max Intensity]");		
-	run("Median...", "radius="+Math.ceil(1+5/zoom));	
-	A = convertImageToArray();
-	t = computeArrayQuantile(A,0.5);
-	Array.getStatistics(A, min, max);
-	setThreshold(t, max);
-	run("Convert to Mask");	
-	run("Fill Holes");
-	return getImageID;
-}
-
 function generateSequence(a,b) {	
 	// create an array with a sequence from a to b with step 1
 	A = newArray(b-a+1);
@@ -791,19 +566,15 @@ function generateSequence(a,b) {
 function setImageThreshold(logpfa) {	
 	// Compute a threshold from a quantile on robust statistics
 	A = convertImageToArray();
-	med = computeArrayQuantile(A,0.1);
-	mad = computeMeanAbsoluteDeviation(A,med);		
+	med = computeArrayMedian(A);
+	mad = computeMeanAbsoluteDeviation(A,med);	
+	print("- med = " + med  + " mad = " + mad);
 	t = med + logpfa * log(10) * mad;
-	print("  - med = " + med  + " mad = " + mad + " threshold = " + t);
 	Array.getStatistics(A, min, max);
 	setThreshold(t, max);
 	return t;
 }
 
-function computeArrayQuantile(A,q) {
-	P = Array.rankPositions(A);	
-	return A[P[round(q*A.length)]];
-}
 
 function computeArrayMedian(A) {
 	P = Array.rankPositions(A);	
@@ -831,33 +602,6 @@ function convertImageToArray() {
 		}
 	}
 	return A;
-}
-
-function defineThreshold(logpfa) {
-	 // Define a threshold based on a probability of false alarm (<0.5)
-	 st = laplaceparam();
-	 pfa = pow(10,logpfa);
-	 if (pfa > 0.5) {
-	 	return st[0] + st[1]*log(2*pfa);
-	 } else {
-	 	return st[0] - st[1]*log(2*pfa);
-	 }
-}
-
-function laplaceparam() {
-	// compute laplace distribution parameters 
-	getHistogram(values, counts, 256);
-	n = getWidth() * getHeight();
-	c = 0;
-	for (i = 0; i < counts.length && c <= n/2; i++) {
-		c = c + counts[i];
-	}
-	m = values[i-1];
-	b = 0;
-	for (i = 0; i < counts.length; i++){
-		b = b + abs(values[i] - m) * counts[i];
-	}
-	return newArray(m,b/n);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
