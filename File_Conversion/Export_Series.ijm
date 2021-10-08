@@ -17,8 +17,7 @@
  *  
  *  Using the dummy mode enable to inspect image size as well and save the result in a cvs file
  *  
- * Jerome Boulanger for Marta 2021
- - updated for Nathan
+ * Jerome Boulanger for Marta 2021, updated for Nathan
  */
  
 run("Close All");
@@ -62,6 +61,7 @@ for (s = s0; s <= s1; s++) {
 		run("Bio-Formats Importer", str); 
 		id1 = processImage(channel, slice, frame, mip, mode);
 	}
+	
 	if (split_channels) {
 		for (c = 1; c <= sizeC; c++) {
 			oname = imageFolder + File.separator + name + "_serie_" + IJ.pad(s,4) + "_channel_" + IJ.pad(c,2) + tag + ext;	
@@ -86,6 +86,7 @@ for (s = s0; s <= s1; s++) {
 			print("Serie " + s + " will be saved in " + oname);
 		}
 	}
+	
 	if (!dummy) {selectImage(id1); close();	}
 
 	setResult("Serie Index", nR0, s);

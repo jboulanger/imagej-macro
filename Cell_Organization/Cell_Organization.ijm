@@ -28,7 +28,7 @@
  * - Measure intensity for each ROI
  * - Measure spread of objects for each ROI
  *
- * Jerome Boulanger for Simon Bullock, Vanesa, Guilia (dec 2019 - 2021)
+ * Jerome Boulanger for Simon, Vanesa, Guilia, Yaiza, Lucas (dec 2019 - 2021)
  */
 
 
@@ -483,7 +483,8 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 				// Add the object to the object table				
 				row_index = Table.size();				
 				Table.set("Condition", row_index, condition_name);
-				Table.set("Image", row_index, image_name);				
+				Table.set("Image", row_index, image_name);
+				Table.set("ROI", row_index,k);
 				selectImage(id);				
 				Table.set("Distance", row_index, dobj);
 				// Measure in all channels
