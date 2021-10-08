@@ -1,8 +1,8 @@
-#@File    (label="Input File",description="Either a csv file or an image file") filename
-#@String  (label="Group",description="Experimental condition", value="control") condition
+#@File    (label="Input file",description="Either a csv file or an image file") filename
+#@String  (label="Condition",description="Experimental group", value="control") condition
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
-#@Boolean (label="Segment Nuclei with StarDist", value=false) use_stardist
+#@Boolean (label="Segment nuclei with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
 #@Integer (label="Object channel", value=2) obj_channel
 #@Float   (label="Object specificity", value=2.0) obj_logpfa
@@ -10,8 +10,10 @@
 #@Boolean (label="Remove ROI touching image borders", value=true) remove_border
 #@Boolean (label="Make band", value=true) makeband
 #@Boolean (label="Mask background", value=true) maskbg
+#@Integer (label="Mask channel", value=2) mask_channel
 #@Float   (label="Distance min [um]", value=0) distance_min
 #@Float   (label="Distance max [um]", value=30) distance_max
+#@String  (label="Additional measurements",description="Comma separated list of measurements", value="Mean,XM,YM,Perim.,Circ.,AR,Round,Solidity") measurements_str
 
 /*
  * Analysis of the spatial distribution (spread) of markers
@@ -31,25 +33,31 @@
 
 
 var OUTOFBOUND = -100000; // flag value for out of bound
-
-starttime = getTime(); 
+var tbl1 = "Regions of interest.csv";
+var tbl2 = "Objects.csv";
+var starttime = getTime(); 
 
 print("\\Clear");
 
-// convert the string of channels to an array
+// convert the comma-separted string of channels to an array
 channel_names = split(channel_names_str,',');
+// convert the comma separated string of measurement to an array
+measurements = split(measurements_str,',');
+// remove white spaces
+for (i = 0; i < measurements.length; i++) {
+	measurements[i] = String.trim(measurements[i]);
+}
 
 // inialize default keys, vals list to empty array
-keys = newArray("ROI Specificity", "Object Specificity", "Zoom", "Mask Background");
-vals = newArray(roi_logpfa, obj_logpfa, downsampling_factor, maskbg);
-
+keys = newArray("ROI Specificity", "Object Specificity", "Zoom", "Remove Border", "Mask Background");
+vals = newArray(roi_logpfa, obj_logpfa, downsampling_factor, remove_border, maskbg);
 
 if (nImages !=0 ) {
 	// First mode: process the opened image
 	print("\n_____________________\nProcessing opened image");
 	filename = getTitle();
 	setBatchMode("hide");
-	process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+	process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements);	
 	setBatchMode("exit and display");
 } else {
 	if (matches(File.getName(filename),"test")) {
@@ -61,22 +69,22 @@ if (nImages !=0 ) {
 		obj_channel = 2;
 		downsampling_factor = 2;
 		channel_names = newArray("ROI","Objects");
-		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+		process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements);	
 		setBatchMode("exit and display");
 	} else if (endsWith(filename, ".csv")) {
 		// Second mode: process the list of files
-		print("\n_____________________\nProcessing list of files");		
-		process_list_of_files(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor);		
+		print("\n_____________________\nProcessing list of files " + filename);		
+		process_list_of_files(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor,keys,vals, measurements);		
 	} else {
 		// Third mode: process a single file
 		print("\n_____________________\nProcessing single file");
-		process_single_file(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+		process_single_file(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements);	
 	}
 }
 
 print("Processing finised in " + (getTime() - starttime)/60000 + "min");	
 
-function process_list_of_files(tablename, condition, channel_names, roi_channel, obj_channel, downsampling_factor) {
+function process_list_of_files(tablename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor,keys,vals, measurements) {
 	/*
 	 * Process a files listed in a csv file 'tablename'
 	 * The table can have the columns 'Filename', 'Condition', 'Channel Names', 'ROI channel', 'Object Channel'
@@ -92,15 +100,16 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 	hasChannelNames = isColumnInTable("Channel Names");
 	hasROI = isColumnInTable("ROI Channel");
 	hasOBJ = isColumnInTable("Object Channel");
-	keys = Array.concat(keys, listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel")));	
-	vals = Array.concat(vals, newArray(keys.length));
-	start_time = getTime();
+	
+	new_keys = listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel"));
+	new_vals = newArray(new_keys.length);
+		
 	for (n = 0; n < N; n++) {
 		if (n==0) {
 			print("Image "+(n+1)+"/"+N + "");
 		} else {
-			rtime = (N-n) / n * (getTime() - start_time);
-			print("Image "+(n+1)+"/"+N + " remaining time " + rtime +"min");
+			rtime = (N-n) * (getTime() - starttime) / n;
+			print("Image "+(n+1)+"/"+N + " remaining time " + (rtime / 60000)+"min");
 		}
 		selectWindow(name);
 		filename = Table.getString("Filename", n);
@@ -118,14 +127,24 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		if (hasOBJ) {
 			obj_channel = Table.getString("Object Channel", n);
 		}
-		for (i = 0; i < keys.length; i++) {
-			vals[i] = Table.getString(keys[i], n);
+		for (i = 0; i < new_keys.length; i++) {
+			new_vals[i] = Table.getString(new_keys[i], n);
 		}
+		all_keys = Array.concat(new_keys, keys);	
+		all_vals = Array.concat(new_vals, vals);		
+		
 		print("Loading " + filename + " with condition " + condition);		
 		run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
-		process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);		
+		process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, all_keys, all_vals, measurements);		
 		close();
 		print("\n");
+		// save temporary version of the roi and obj table in case of crash.
+		selectWindow(tbl1);
+		Table.save(path + File.separator + "roi-tmp.csv");
+		selectWindow(tbl2);
+		Table.save(path + File.separator + "obj-tmp.csv");		
+		selectWindow("Log");
+		saveAs("Text", path + File.separator + "Log.csv");		
 	}	
 }
 
@@ -164,18 +183,18 @@ function listOtherColumns(colnames) {
 	return Array.trim(other,j);
 }
 
-function process_single_file(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals) {
+function process_single_file(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements) {
 	/* 
 	 *  Process a single file and close the images at exit
 	 */	
 	print("Loading " + filename);
 	run("Bio-Formats Importer", "open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");	
 	setBatchMode("hide");
-	process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals);	
+	process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements);	
 	setBatchMode("exit and display");
 }
 
-function process_image(filename, condition, channel_names, roi_channel, obj_channel, downsampling_factor, keys, vals) {
+function process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals, measurements) {
 	/*	
 	 * 	Process the opened image
 	 * 	- resample the image
@@ -190,8 +209,8 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 		chstr += "[" + toString(i+1) + ":" +channel_names[i] + "]";
 		if (i != channel_names.length-1) {chstr+=", ";}
 	}	
-	print(chstr);
-	 
+	print(chstr);	
+
 	closeRoiManager();	
 	run("Stack to Hyperstack...", "order=xyczt(default) channels="+nSlices+" slices=1 frames=1 display=Color");	
 	if (downsampling_factor != 1) {
@@ -225,7 +244,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	}
 	
 	if (maskbg) {
-		bg = segmentBackground(id, obj_channel, downsampling_factor);
+		bg = segmentBackground(id, mask_channel, downsampling_factor);
 		applyBackground(dist, bg);	
 		selectImage(bg); close();
 	}
@@ -236,7 +255,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	}
 	
 	print(" - measure statistics per ROI");
-	measureROIStats(id, dist, nrois, objects, obj_channel, condition, channel_names, filename, keys, vals);
+	measureROIStats(id, dist, nrois, objects, obj_channel, condition, channel_names, filename, keys, vals, measurements);
 	
 	selectImage(id);
 	run("Make Composite");	
@@ -403,10 +422,11 @@ function getValues(id, slice, xpoints, ypoints) {
 	return vals;
 }
 
-function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, channel_names, image_name, keys, vals) {	
+function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, channel_names, image_name, keys, vals, measurements) {	
 	N = 10; // number of radial intensities measured
 	// compute object spread and other statistics for each ROI
 	selectImage(id);
+	Stack.getDimensions(width, height, channels, slices, frames);
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	run("Subtract Background...", "rolling=10");
 	// initialize accumulators
@@ -422,17 +442,18 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 	entropy = newArray(rois.length); // sum[ w/(sum w) log(w/(sum w))] = (sum(w log w) - (sum w) log(sum w)) / sum w
 	distance = newArray(rois.length); // avergae object distance to the  nuclei
 	radial_intensity =  newArray(N * rois.length); // radial intensities
-	
+	no = createTable(tbl2);	
 	for (k = 1; k <= nSlices; k++) { // index on the distance stack						
 		for (i = 0; i < objects.length; i++) {
 			selectImage(dist);
 			setSlice(k);
 			roiManager("select", objects[i]);
-			val = getValue("Min");		
+			val = getValue("Min");	
 			// if the minimum distance in the object is more than OUTOFBOUND, the object is considered for analysis
 			if (val > OUTOFBOUND) {
 				count[k-1] = count[k-1] + 1;
-				distance[k-1] = distance[k-1] + getValue("Mean");				
+				dobj = getValue("Mean");
+				distance[k-1] = distance[k-1] + dobj;				
 				// get the coordinates of points inside the object ROI
 				roiManager("select", objects[i]);				
 				Roi.getContainedPoints(xpoints, ypoints);
@@ -458,8 +479,31 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 					if (dindex >= 0 && dindex < N) {
 						radial_intensity[dindex + N * (k-1)] = radial_intensity[dindex + N * (k-1)] + w[q];
 					}
+				}
+				// Add the object to the object table				
+				row_index = Table.size();				
+				Table.set("Condition", row_index, condition_name);
+				Table.set("Image", row_index, image_name);				
+				selectImage(id);				
+				Table.set("Distance", row_index, dobj);
+				// Measure in all channels
+				for( c = 1; c <= channels; c++) {
+					Stack.setChannel(c);
+					roiManager("select", objects[i]);
+					Table.set("Mean "+channel_names[c-1], row_index, getValue("Mean"));
+				}
+				// Measure in object channel
+				roiManager("select", objects[i]);
+				Stack.setChannel(obj_channel);
+				for (m = 0; m < measurements.length; m++) {
+					Table.set(measurements[m], row_index, getValue(measurements[m]));					
 				}				
-			}
+				// Add extra keys
+				for (m = 0; m < keys.length; m++) {
+					Table.set(keys[m], row_index, vals[m]);
+				}				
+				Table.update();
+			}			
 		}
 		// derive spread, entropy, distances, etc from the accumulators
 		swx[k-1] = swx[k-1] / sw[k-1];
@@ -483,13 +527,12 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 	}
 	
 	selectImage(id);
-	Stack.getDimensions(width, height, channels, slices, frames);
-	roitbl = "Regions of interest";
-	n = createTable(roitbl);	
+	Stack.getDimensions(width, height, channels, slices, frames);	
+	n = createTable(tbl1);	
 	for (k = 0; k < rois.length; k++) {
 		if (count[k] > 0) {					
 			index = rois[k];			
-			roiManager("select", index);
+			roiManager("select", index);			
 			Table.set("Condition"    , n, condition_name);
 			Table.set("Image"        , n, File.getName(image_name));
 			for (i = 0; i < keys.length; i++) {
