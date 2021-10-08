@@ -149,9 +149,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 }
 
 function isColumnInTable(colname) {
-	/*
-	 * Return true if the table has a column with name 'colname'
-	 */
+	/* Return true if the table has a column with name 'colname' */
 	headers = split(Table.headings(),'\t');
 	for (k = 0; k < headers.length; k++) {
 		if (matches(headers[k], colname)) {
@@ -162,9 +160,7 @@ function isColumnInTable(colname) {
 }
 
 function listOtherColumns(colnames) {
-	/*
-	 * Return an array with the columns name which are not in colnames
-	 */
+	/* Return an array with the columns name which are not in colnames	 */
 	headers = split(Table.headings(),'\t');
 	other = headers;
 	j = 0;
