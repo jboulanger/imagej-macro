@@ -2,6 +2,9 @@
 
 This macro analyse the spread of fluorescent marker in cells by measuring features such the spread (2nd moment), entropy, area, distance to the nuclei.
 
+![image](https://user-images.githubusercontent.com/3415561/136790160-5dd4153c-73cc-461b-bbd7-c9ea5210754f.png)
+
+
 ## Parameters
 - Input file:
   - if an image is already opened, then this is ignored and the image is processed
