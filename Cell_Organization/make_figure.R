@@ -1,5 +1,6 @@
 ##########################################################################
-## Make figures for the analysis of spread amd intensity
+## Make figures for the analysis of spread and intensity
+## loading the region of interest.csv file
 ##
 ## The result file has extea columns Run and Experiment
 ##
@@ -17,7 +18,7 @@ library(grid)
 #######################
 ### Load result file
 #######################
-filename = "./results.csv"
+filename = "Regions of interest.csv"
 df <- read.csv(filename)
 ## Make sure that the levels are in the specified order
 df$Condition <- factor(df$Condition, level=c("Control","KO"))
