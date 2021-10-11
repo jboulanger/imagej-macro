@@ -31,3 +31,5 @@ This macro analyse the spread of fluorescent marker in cells by measuring featur
 The macro creates 2 table:
 - Regions of Interest.csv : one line per ROI
 - Objects.csv: one line per object
+
+The R script make_figures.R shows an example on how to process the file 'Regions of interest.csv' to produce boxplot per condition with pairwise t test.
