@@ -28,8 +28,8 @@ This macro analyse the spread of fluorescent marker in cells by measuring featur
 - Additional measurements: comma separated list of measurements defined in the measurement tool. The values can be Area, Mean, StdDev, Mode, Min, Max, X, Y, XM, YM, Perim., BX, BY, Width, Height, Major, Minor, Angle, Circ., Feret, IntDen, Kurt, %Area, RawIntDen, Slice, FeretX,  FeretY,  FeretAngle, MinFeret, AR, Round, Solidity. The measurement will be applied to the object channel only. Mean intensity measurements for each channel are already included by default.
 
 ## Output
-The macro creates 2 table:
-- Regions of Interest.csv : one line per ROI
-- Objects.csv: one line per object
+The macro creates 2 tables that can be save as comma separated (csv) files (can be opened in excel, Graphpad Prism, etc)
+- Regions of Interest.csv : one line per ROI with Mean intensity, Spread, Entropy, etc per region of interest (cell).
+- Objects.csv: one line per object with distance to ROI border (eg nuclei), mean intensity in each channel, and all 
 
-The R script make_figures.R shows an example on how to process the file 'Regions of interest.csv' to produce boxplot per condition with pairwise t test.
+The R script make_figures.R shows an example on how to load the file 'Regions of interest.csv' to produce boxplot per condition with pairwise t test using ggplot2.
