@@ -2,18 +2,18 @@
 #@String  (label="Condition",description="Experimental group", value="control") condition
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
-#@Boolean (label="Segment nuclei with StarDist", value=false) use_stardist
-#@Float   (label="ROI specificity", value=2.0) roi_logpfa
 #@Integer (label="Object channel", value=2) obj_channel
-#@Float   (label="Object specificity", value=2.0) obj_logpfa
+#@Integer (label="Mask channel", value=2) mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
+#@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
+#@Float   (label="ROI specificity", value=2.0) roi_logpfa
+#@Float   (label="Object specificity", value=2.0) obj_logpfa
 #@Boolean (label="Remove ROI touching image borders", value=true) remove_border
 #@Boolean (label="Make band", value=true) makeband
 #@Boolean (label="Mask background", value=true) maskbg
-#@Integer (label="Mask channel", value=2) mask_channel
 #@Float   (label="Distance min [um]", value=0) distance_min
 #@Float   (label="Distance max [um]", value=30) distance_max
-#@String  (label="Additional measurements",description="Comma separated list of measurements", value="Mean,XM,YM,Perim.,Circ.,AR,Round,Solidity") measurements_str
+#@String  (label="Additional measurements",description="Comma separated list of measurements", value="Area,Perim.,Circ.,AR,Round,Solidity") measurements_str
 
 /*
  * Analysis of the spatial distribution (spread) of markers
@@ -100,6 +100,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 	hasChannelNames = isColumnInTable("Channel Names");
 	hasROI = isColumnInTable("ROI Channel");
 	hasOBJ = isColumnInTable("Object Channel");
+	hasMASK = isColumnInTable("Mask Channel");
 	
 	new_keys = listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel"));
 	new_vals = newArray(new_keys.length);
@@ -126,6 +127,9 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		}
 		if (hasOBJ) {
 			obj_channel = Table.getString("Object Channel", n);
+		}
+		if (hasMASK) {
+			mask_channel = Table.getString("Mask Channel", n);
 		}
 		for (i = 0; i < new_keys.length; i++) {
 			new_vals[i] = Table.getString(new_keys[i], n);
@@ -809,13 +813,13 @@ function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
 function segmentBackground(id, channel, zoom) {
 	/* Segment the background and return the image ID */
 	selectImage(id);
-	//run("Duplicate...", "duplicate channels="+channel);
-	run("Z Project...", "projection=[Max Intensity]");		
+	if (matches(channel, "max") {
+		run("Z Project...", "projection=[Max Intensity]");
+	} else {
+		run("Duplicate...", "duplicate channels="+channel);
+	}			
 	run("Median...", "radius="+Math.ceil(1+5/zoom));	
-	A = convertImageToArray();
-	t = computeArrayQuantile(A,0.5);
-	Array.getStatistics(A, min, max);
-	setThreshold(t, max);
+	setImageThreshold(0.5);
 	run("Convert to Mask");	
 	run("Fill Holes");
 	return getImageID;
