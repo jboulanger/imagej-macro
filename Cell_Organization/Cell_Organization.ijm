@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@Integer (label="Mask channel", value=2) mask_channel
+#@String (label="Mask channel", value=2) mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
@@ -812,11 +812,12 @@ function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
 
 function segmentBackground(id, channel, zoom) {
 	/* Segment the background and return the image ID */
+	print(" - Segment background on channel " + channel);
 	selectImage(id);
-	if (matches(channel, "max") {
+	if (matches(channel, "max")) {
 		run("Z Project...", "projection=[Max Intensity]");
 	} else {
-		run("Duplicate...", "duplicate channels="+channel);
+		run("Duplicate...", "duplicate channels="+channel);		
 	}			
 	run("Median...", "radius="+Math.ceil(1+5/zoom));	
 	setImageThreshold(0.5);
