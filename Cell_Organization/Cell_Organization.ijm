@@ -102,9 +102,9 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 	hasOBJ = isColumnInTable("Object Channel");
 	hasMASK = isColumnInTable("Mask Channel");
 	
-	new_keys = listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel"));
+	new_keys = listOtherColumns(newArray("Filename","Condition","Channel Names","ROI Channel","Object Channel","Mask Channel"));
 	new_vals = newArray(new_keys.length);
-		
+	
 	for (n = 0; n < N; n++) {
 		if (n==0) {
 			print("Image "+(n+1)+"/"+N + "");
@@ -148,7 +148,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		selectWindow(tbl2);
 		Table.save(path + File.separator + "obj-tmp.csv");		
 		selectWindow("Log");
-		saveAs("Text", path + File.separator + "Log.csv");		
+		saveAs("Text", path + File.separator + "log.txt");		
 	}	
 }
 
@@ -170,7 +170,7 @@ function listOtherColumns(colnames) {
 	j = 0;
 	for (k = 0; k < headers.length; k++) {
 		keep = true;
-		for (i = 0; k < colnames.length && keep; i++) {
+		for (i = 0; i < colnames.length && keep; i++) {
 			if (matches(headers[k], colnames[i])) {
 				keep = false;
 			}
