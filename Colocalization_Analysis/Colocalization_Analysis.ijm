@@ -436,7 +436,7 @@ function colorROI(roi,color,addlabel) {
 	for (i = 0; i < roi.length; i++) {
 		roiManager("select", roi[i]);
 		Overlay.addSelection(color);
-		Overlay.setPosition(channel, slice, frame);
+		Overlay.setPosition(1, slice, frame);
 		Overlay.show();
 		if (addlabel) {
 			setColor("white");
