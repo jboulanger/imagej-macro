@@ -1,13 +1,13 @@
-#@String(label="preprocessing", choices={"LoG","Rolling Ball","None"}) preprocess_type
-#@Float(label="scale [px]", value=2, min=1, max=10, style="slider") scale
-#@Float(label="Sensitivity", value=0.25) sensitivity
-#@String(label="area [px]", value="5-Infinity") areafilter
-#@String(label="circularity", value="0.5-1") circfilter
-#@String(label="overlay colors", value="blue red green white") colstr
-#@String(label="channel tag", value="A B C") tagstr
-#@String(label="experimental condition", value="unknown") condition
-#@Boolean(label="Perform colocalization?", value=true) docoloc
-#@Boolean(label="Colocalize on original?", value=true) onoriginal
+#@String(label="preprocessing", description="type of object detection", choices={"LoG","Rolling Ball","None"}) preprocess_type
+#@Float(label="scale [px]", description="scale of the object to detect", value=2, min=1, max=10, style="slider") scale
+#@Float(label="Specificity",description="set the specificity", value=0.25) specificity
+#@String(label="area [px]", description="filter object by area, use min-max to set range",value="5-Infinity") areafilter
+#@String(label="circularity", description="filter object by circ., use min-max to set range", value="0.5-1") circfilter
+#@String(label="overlay colors", description="comma separated list of colors for control overlay", value="blue,red,green,white") colstr
+#@String(label="channel names", description="comma separated list of value of channel name", value="A B C") tagstr
+#@String(label="experimental condition", description="record an experiement group for book keeping", value="unknown") condition
+#@Boolean(label="Perform colocalization?", description="enable/disable the colocalization", value=true) docoloc
+#@Boolean(label="Colocalize on original?", description="use the original image of the preprocessed image", value=true) onoriginal
 	
 /*
  * Colocalization analysis for segmented structures
@@ -71,7 +71,7 @@
  * Jerome Boulanger for Yohei 2021
  */
 
-logpfa = -sensitivity;
+logpfa = -specificity;
 
 // Initialization
 
@@ -170,7 +170,7 @@ for (c = 1; c <= channels; c++) {
 }
 
 if (docoloc) {
-	
+	print(" - Colocolization");
 	// Compute the colocalization coefficients
 	tblname = "Colocalization.csv";
 	if (!isOpen(tblname)) {
@@ -178,6 +178,7 @@ if (docoloc) {
 	}
 	
 	for (k = 0; k < roi0.length; k++) {
+		showProgress(k, roi0.length);
 		roiManager("select",roi0[k]);
 		Roi.getBounds(rx, ry, rwidth, rheight);
 		run("Select None");
@@ -267,6 +268,10 @@ selectImage(id); close();
 clearROI(all_childs);
 // exit batch mode
 setBatchMode("show");
+selectImage(id0);
+Stack.setChannel(1);
+print("Done");
+
 
 
 // Preprocessing functions

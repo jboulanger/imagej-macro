@@ -1,6 +1,6 @@
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Float(label="Rolling ball radius", value=200) ball_radius
-#@Float(label="Sensitivity", value=0.25) sensitivity
+#@Float(label="Specificity",description="decrease this value to", value=0.25) specificity
 #@Float(label="min area [um^2]", value=50) min_area
 
 /*
@@ -25,7 +25,7 @@ for (i = 0; i < 4; i++) {
 // substract the background
 run("Subtract Background...", "rolling="+ball_radius);
 // threshold
-defineThreshold(-sensitivity);
+defineThreshold(-specificity);
 run("Convert to Mask");
 run("Watershed");
 // close the roi manager if it is open
