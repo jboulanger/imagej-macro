@@ -1,6 +1,6 @@
 #@String(label="preprocessing", choices={"LoG","Rolling Ball","None"}) preprocess_type
 #@Float(label="scale [px]", value=2, min=1, max=10, style="slider") scale
-#@Float(label="false alarm", value=-2, min=-5, max=0, style="slider") logpfa
+#@Float(label="Sensitivity", value=0.25) sensitivity
 #@String(label="area [px]", value="5-Infinity") areafilter
 #@String(label="circularity", value="0.5-1") circfilter
 #@String(label="overlay colors", value="blue red green white") colstr
@@ -70,6 +70,8 @@
  * 
  * Jerome Boulanger for Yohei 2021
  */
+
+logpfa = -sensitivity;
 
 // Initialization
 
