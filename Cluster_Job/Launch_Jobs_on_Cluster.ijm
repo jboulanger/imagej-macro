@@ -26,6 +26,7 @@ print(ret);
 wait(200);
 
 print("Start job " + File.getName(local_template_path) + " on " + hostname);
-ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, template_name, remote_path);
+ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, template_name, "\""+remote_path+"\"");
 print(ret);
 print("");
+
