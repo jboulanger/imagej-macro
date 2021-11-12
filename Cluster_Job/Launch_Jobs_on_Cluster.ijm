@@ -11,25 +11,38 @@
  * Jerome Boulanger 2021 
  */
 
+delay = 500; // artificial delays that prevent denial of service 
 remote_path = replace(convert_slash(local_path), convert_slash(local_share), remote_share);
 template_name = File.getName(local_template_path);
 remote_jobs_dir = remote_share + "/jobs";
+local_jobs_dir = local_share + File.separator + "jobs";
 remote_template_path = remote_jobs_dir + '/' + template_name;
-print("Create a job folder on " + hostname);
-ret = exec("ssh", username+"@"+hostname, "mkdir", "-p", remote_jobs_dir);
-print(ret);
-wait(200);
+local_template_cpy_path = local_jobs_dir + File.separator + template_name;
 
-print("Send template " + template_name + " file to " + hostname + ".");
-ret = exec("scp", local_template_path, username+"@"+hostname+":", remote_template_path);
-print(ret);
-wait(200);
+// create a job folder if needed
+if (File.exists(local_jobs_dir) != 1) {
+	print("Create a jobs folder in " + local_share);
+	File.makeDirectory(local_jobs_dir);
+} else {
+	print("Jobs folder already present in " + local_share);
+}
 
-print("Start job " + File.getName(local_template_path) + " on " + hostname);
+// copy the template filre
+print("Copy template " + template_name + " file to " + local_template_cpy_path + ".");
+File.copy(local_template_path, local_template_cpy_path);
+
+// convert encoding of the file, otherwise sbatch will complain
+ret = exec("ssh", username+"@"+hostname, "dos2unix", remote_template_path);
+wait(delay);
+
+// start the job with a ssh command
+print("Start job " + template_name + " on " + hostname);
+print("ssh"+" "+ username+"@"+hostname+" "+ "sbatch" +" "+ "--chdir"+ " " + remote_jobs_dir + " " + template_name + " "+"\""+remote_path+"\"");
+
 ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, template_name, "\""+remote_path+"\"");
-print(ret);
-print("");
-
+print("Answer:" + ret);
+wait(delay);
+print("Ready\n");
 
 function convert_slash(src) {
 	// convert windows file separator to unix file separator if needed
