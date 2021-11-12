@@ -37,7 +37,7 @@ In order to define what processing to apply to the input file, one need to write
 #SBATCH --mail-type=END
 ```
 
-## Usage
+## SLURM job
 You can run the macro in normal mode or in batch mode.
 1. Map or connect the network drive where data are stored and accessible by the cluster.
 2. Open the macro and press "run" or "batch"
@@ -46,6 +46,9 @@ You can run the macro in normal mode or in batch mode.
 5. Select the path to the network drive (on windows this will be the letter of the drive, for example Z:\)
 7. Write the path to the drive as accessible from the cluster. This should be starting by / (absolute path)
 8. Press ok
+
+## JOB array
+It might be more convenient to use a job array instead of a job. To define the array, a table is used with each line defining a job. This enable to define filenames but also various parameters that can be used by the .
 
 
 
