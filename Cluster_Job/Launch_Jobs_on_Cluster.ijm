@@ -37,12 +37,10 @@ wait(delay);
 
 // start the job with a ssh command
 print("Start job " + template_name + " on " + hostname);
-print("ssh"+" "+ username+"@"+hostname+" "+ "sbatch" +" "+ "--chdir"+ " " + remote_jobs_dir + " " + template_name + " "+"\""+remote_path+"\"");
-
 ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, template_name, "\""+remote_path+"\"");
-print("Answer:" + ret);
+print(" >>" + ret);
 wait(delay);
-print("Ready\n");
+
 
 function convert_slash(src) {
 	// convert windows file separator to unix file separator if needed
