@@ -1,5 +1,6 @@
 #@File (label="folder", style="directory") top_folder
 #@String(label="file extenstion",value=".lsm") file_extension
+#@Boolean(label="Relative path",value=true) is_relative
 /*
  * Parse sub folder and group images by subfolder names
  * 
@@ -16,9 +17,13 @@ for (c = 0; c < condition_list.length; c++) {
 	condition_name = replace(condition_list[c],File.separator,'');
 	image_list =  getFileList(top_folder + File.separator + condition_list[c]);
 	for (f = 0; f < image_list.length; f++) {
-		if (endsWith(image_list[f], file_extension)) {
+		if (endsWith(image_list[f], file_extension)) {			
 			setResult("Condition",n,condition_name);
-			setResult("Filename",n,top_folder + File.separator + condition_list[c] + image_list[f]);
+			if (is_relative) {
+				setResult("Filename",n, condition_list[c] + image_list[f]);
+			} else {
+				setResult("Filename",n,top_folder + File.separator + condition_list[c] + image_list[f]);
+			}
 			n++;
 		}
 	}
