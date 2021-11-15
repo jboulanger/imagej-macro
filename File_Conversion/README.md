@@ -47,3 +47,9 @@ Parameters:
 
 
 The path of saved files are 'output folder' / 'image name'_serie_'indices'+'tag'.'extension'
+
+## Parse_folder.ijm
+
+This macro parses files in folder with 1 recursion depth and lists the files and top folders in a table. This table can be used as an input for other macros such as Convention/Cell_Organization.ijm and Cluster_Job/Launch_Job_Array.ijm
+
+
