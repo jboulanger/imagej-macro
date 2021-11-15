@@ -1,8 +1,8 @@
 # File_Conversion
 
-Two macros that help handling files in multi-serie container or a set of files.
+Here are 3 macros that help handling files in multi-serie container or a set of files in a folder.
 
-The macros apply to only one file at thes using "Run". Use "Batch" to process multiple files.
+The two first macros apply to only one file at the time when using "Run". Use "Batch" to process multiple files.
 
 ## Export_Series.ijm
 This macro exports the individual series from a container such as a LIF file acquired on a Leica microscope with the LAX software. It enable to apply a few common operations on channels, and stacks.
@@ -47,3 +47,9 @@ Parameters:
 
 
 The path of saved files are 'output folder' / 'image name'_serie_'indices'+'tag'.'extension'
+
+## Parse_folder.ijm
+
+This macro parses files in folder with 1 recursion depth and lists the files and top folders in a table. This table can be used as an input for other macros such as Convention/Cell_Organization.ijm and Cluster_Job/Launch_Job_Array.ijm
+
+
