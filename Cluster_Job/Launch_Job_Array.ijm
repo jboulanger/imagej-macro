@@ -54,7 +54,7 @@ wait(delay);
 
 // start the job with a ssh command
 print("Start job " + template_name + " on " + hostname);
-//ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, "--array=1-"+n, template_name, "\""+remote_path+"\"",remote_data_path);
+ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, "--array=1-"+n, template_name, "\""+remote_path+"\"",remote_data_path);
 //print("Answer:" + ret);
 wait(delay);
 print("Ready\n");

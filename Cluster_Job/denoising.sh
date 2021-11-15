@@ -11,7 +11,7 @@ echo "Starting time    : `date`"
 set ifile = "$1"
 # set the output file
 set ofile = `echo $ifile | sed 's/\.tif/_denoised\.tif/g'`
-~/bin/ndsafir -i $ifile -o $ofile
+/lmb/home/jeromeb/bin/ndsafir -i $ifile -o $ofile
 echo "Input file       : $ifile"
 echo "Output file      : $ofile"
 echo "Finishing time   : `date`"
