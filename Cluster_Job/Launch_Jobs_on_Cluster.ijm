@@ -1,9 +1,9 @@
-#@File (label="Input file",description="Select the file to process") local_path
+#@File (label="Input file",description="Select the file to process") input_file
 #@String (label="Username", value="username", description="Username on the host") username
 #@String (label="Host", value="hex", description="hostname to which command are send") hostname
 #@File (label="Template file", description="Script to send to the host") local_template_path
-#@File (label="Local path",description="Local mounting point of the network share", style="directory") local_share
-#@String (label="Remote path",description="Remote mounting point of the network share", value="/cephfs/") remote_share
+#@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
+#@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 
 /*
  * Launch a slurm job with the file filename as input using a template script
@@ -12,7 +12,7 @@
  */
 
 delay = 500; // artificial delays that prevent denial of service 
-remote_path = replace(convert_slash(local_path), convert_slash(local_share), remote_share);
+remote_path = replace(convert_slash(input_file), convert_slash(local_share), remote_share);
 template_name = File.getName(local_template_path);
 remote_jobs_dir = remote_share + "/jobs";
 local_jobs_dir = local_share + File.separator + "jobs";
@@ -55,5 +55,4 @@ function convert_slash(src) {
 	} else {
 		return src;
 	}
-	
 }
