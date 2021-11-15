@@ -48,7 +48,15 @@ You can run the macro in normal mode or in batch mode.
 8. Press ok
 
 ## JOB array
-It might be more convenient to use a job array instead of a job. To define the array, a table is used with each line defining a job. This enable to define filenames but also various parameters that can be used by the .
+It might be more convenient to use a job array instead of a job. To define the array, a table is used with each line defining a job. This enable to define filenames but also various parameters that can be used by the macro. Use [Parse_Folder.ijm](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/File_Conversion/Parse_Folders.ijm) to create a list of files you want to process, optionally edit this file in excel for example and save it as csv. Open the table and run the macro. We assume again that the network share is accessible both on the local computer and the remote computer.
+The parameters are:
+- Username: your username on the cluster
+- Host : the name of the server to connect to.
+- Template File: the script that will run on the host. See templates-array0.sh as an example of script
+- Local share: local mounting point of the network share (eg X:\ on windows)
+- Remote share: Remote mounting point of the network share (eg /bignetworkdrive/$USER/)
+- Data root location: the root (absolute path) to the data on the locally mapped drive. (X:\data)
+
 
 
 
