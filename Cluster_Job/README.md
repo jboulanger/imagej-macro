@@ -54,12 +54,8 @@ Once the ssh access configured and the script edited, we are readdy to send jobs
 For this you can run the macro Launch_Jobs_on_Cluster.ijm  in normal mode or in batch mode.
 1. Map or connect the network drive where data are stored and accessible by the cluster.
 2. Open the macro and press "run" or "batch"
-3. Select the file you want to process that are already on the network drive
-4. Set the your username and the name of the server you want to connect to.
-5. Select the path to the network drive (on windows this will be the letter of the drive, for example Z:\)
-7. Write the path to the drive as accessible from the cluster. This should be starting by / (absolute path)
-8. Press ok and set the parameters:
-  - Input File: select the file to process. This file has to be on the network share.
+3. Set the parameters:
+  - Input File: select the file to process. This file has to be on the network share. If you pressed "batch" select multiple files
   - Username: your username on the cluster
   - Host : the name of the server to connect to.
   - Template File: the script that will run on the host. See templates-array0.sh as an example of script
