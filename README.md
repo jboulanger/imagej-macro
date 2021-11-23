@@ -22,3 +22,10 @@ Click on the macro name to access the raw macro file that you can save on your c
 |[Export_Series.ijm](https://github.com/jboulanger/imagej-macro/raw/main/File_Conversion/Export_Series.ijm)|[Export series from a multi-image container (LIF file)](https://github.com/jboulanger/imagej-macro/blob/main/File_Conversion/README.md)|
 |[Cilia_Beat.ijm](https://github.com/jboulanger/imagej-macro/raw/main/Tetrahymena_Beat/Cilia_Beat.ijm)| [Analysis of Cilia Beats](https://github.com/jboulanger/imagej-macro/blob/main/Tetrahymena_Beat/README.md)|
 |[Tile_Tools.ijm](https://github.com/jboulanger/imagej-macro/raw/main/Tiles_Tools/Tiles_Tools.ijm)| [Manipulate tiles](https://github.com/jboulanger/imagej-macro/blob/main/Tiles_Tools/README.md)|
+
+Otherwise,  
+- browse the folder, 
+- click the individual file you want to download, 
+- press the raw button 
+![image](https://user-images.githubusercontent.com/3415561/143018856-2a249370-af2a-4116-aa24-03785fad2b4c.png)
+- download the raw file (Ctrl-S) and open in in ImageJ/Fiji
