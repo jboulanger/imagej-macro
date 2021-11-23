@@ -4,6 +4,15 @@ This macro analyse the spread of fluorescent marker in cells by measuring featur
 
 ![image](https://user-images.githubusercontent.com/3415561/136790160-5dd4153c-73cc-461b-bbd7-c9ea5210754f.png)
 
+## Preparation of files [optinal]
+If you want to process many files, it is convenient to create a list of these files using the macro [Parse_Folder.ijm ](https://github.com/jboulanger/imagej-macro/tree/main/File_Conversion) and tick the relative path option. This macro will consider the top folder as a condition name and list all the files with matching extension into a table that you can save to your disk at the top of the folder where your data are stored.
+
+Additionnaly, you can add the following columns to this table using your favorite spreadsheet software:
+- "Channel Names" : list of the name of the channels
+- "ROI Channel": index of the channel segmented to define the ROI (nucleir marker/DAPI)
+- "Object Channel": index of the channel segmented to define objects inside the ROI (signal of interest)
+- "Mask Channel": index of the channel that is used to define a mask for the ROI. (cell marker/ cell mask)
+Try to use these exacts keywords as column title and they'll replace the corresponding parameters when running the "macro Cell_Organization.ijm". You can also add anyother housekeeping column, they'll be copied over into the final result tables.
 
 ## Parameters
 - Input file:
