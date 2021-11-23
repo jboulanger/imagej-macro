@@ -6,4 +6,5 @@
  */
  
 ret = exec("ssh", username+"@"+hostname, "scancel "+jobid);
+print(ret);
 
