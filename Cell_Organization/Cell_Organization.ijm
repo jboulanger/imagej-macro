@@ -144,7 +144,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		print("\n");
 		// save temporary version of the roi and obj table in case of crash.
 		selectWindow(tbl1);
-		Table.save(path + File.separator + "roi-tmp.csv");
+		Table.save(path + File.separator + File.getName(tablename) );
 		selectWindow(tbl2);
 		Table.save(path + File.separator + "obj-tmp.csv");		
 		selectWindow("Log");
