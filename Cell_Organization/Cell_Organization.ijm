@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@String (label="Mask channel", value=2) mask_channel
+#@String  (label="Mask channel", value=2) mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
@@ -118,8 +118,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 			condition = Table.getString("Condition", n);		
 		}
 		if (hasChannelNames) {
-			channel_names_str = Table.getString("Channel Names", n);			
-			//channel_names = split(substring(channel_names_str, 1, lengthOf(channel_names_str)-1),",");
+			channel_names_str = Table.getString("Channel Names", n);						
 			channel_names = split(channel_names_str,",");			
 		}
 		if (hasROI) {
@@ -137,19 +136,40 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		all_keys = Array.concat(new_keys, keys);	
 		all_vals = Array.concat(new_vals, vals);		
 		
-		print("Loading " + filename + " with condition " + condition);		
-		run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
+		print("Loading " + filename + " with condition " + condition);
+		if (isAbsolutePath(filename)) {
+			run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
+		} else {
+			run("Bio-Formats Importer", "open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
+		}
 		process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, all_keys, all_vals, measurements);		
 		close();
 		print("\n");
 		// save temporary version of the roi and obj table in case of crash.
 		selectWindow(tbl1);
-		Table.save(path + File.separator + File.getName(tablename) );
+		Table.save(path + File.separator + replace(File.getName(tablename),".csv", "-roi.csv" ));
 		selectWindow(tbl2);
-		Table.save(path + File.separator + "obj-tmp.csv");		
+		Table.save(path + File.separator + replace(File.getName(tablename),".csv", "-obj.csv" ));		
 		selectWindow("Log");
-		saveAs("Text", path + File.separator + "log.txt");		
+		saveAs("Text", path + File.separator + replace(File.getName(tablename),".csv", "-log.txt" ));		
 	}	
+}
+
+function isAbsolutePath(p) {
+	// return true if the path is absolute
+	if (matches(getInfo("os.name"),"Windows")) {
+		if (charCodeAt(p,1)==58 && charCodeAt(p,1)==92) {
+			return true;
+		} else {
+			return false;
+		}
+	} else {
+		if (charCodeAt(p,0)==47) {
+			return true;
+		} else {
+			return false;
+		}
+	}
 }
 
 function isColumnInTable(colname) {
