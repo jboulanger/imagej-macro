@@ -25,13 +25,13 @@ if (nImages==0) {
 	path = File.openDialog("Open an image");
 	open(path);
 }
-
+print(mode);
 if (matches(mode, "Estimate")) {
 	estimateTransform("Affine");
-} else {
+} else {	
 	applyTransform();
 }
-
+print("Done");
 function applyTransform() {
 	Stack.getDimensions(width, height, channels, slices, frames);
 	for (channel = 2; channel <= channels; channel++) {

@@ -31,7 +31,6 @@
  * Jerome Boulanger for Simon, Vanesa, Guilia, Yaiza, Lucas (dec 2019 - 2021)
  */
 
-
 var OUTOFBOUND = -100000; // flag value for out of bound
 var tbl1 = "Regions of interest.csv";
 var tbl2 = "Objects.csv";
