@@ -1,4 +1,4 @@
-#@File    (label="Input file",description="Either a csv file or an image file") filename
+#@File    (label="Input file",description="Either a csv file or an image file, tye test to generate image") filename
 #@String  (label="Experimental group",description="Experimental group", value="control") condition
 #@String  (label="Channels name", description="List the name of the channels in order separated by commas", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", description="Indicate the index of the channel used to segment ROI (eg nuclei)", value=1) roi_channel
@@ -51,7 +51,7 @@ if (nImages !=0 ) {
 	print("\n_____________________\nProcessing opened image");
 	filename = getTitle();	
 	setBatchMode("hide");
-	process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals);	
+	process_image(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, keys, vals);	
 	setBatchMode("exit and display");
 } else {
 	if (matches(File.getName(filename),"test")) {
@@ -64,16 +64,16 @@ if (nImages !=0 ) {
 		channel_names = newArray("Blue","Red","Green");
 		obj_channels = newArray(2,3);
 		mask_channel = 0;		
-		process_image(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, downsampling_factor, preprocess_type, onoriginal, scale, keys, vals);
+		process_image(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, keys, vals);
 		setBatchMode("exit and display");
 	} else if (endsWith(filename, ".csv")) {
 		// Second mode: process the list of files
 		print("\n_____________________\nProcessing list of files " + filename);		
-		process_list_of_files(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor,keys,vals);		
+		process_list_of_files(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, keys,vals);		
 	} else {
 		// Third mode: process a single file
-		print("\n_____________________\nProcessing single file");
-		process_single_file(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor, keys, vals);	
+		print("\n_____________________\nProcessing single file");		
+		process_single_file(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, keys, vals);	
 	}
 }
 
@@ -98,7 +98,7 @@ function getColors(str) {
 	return colors;
 }
 
-function process_list_of_files(tablename, condition, channel_names, roi_channel, obj_channel, mask_channel, downsampling_factor,keys,vals) {
+function process_list_of_files(tablename, condition, channel_names, roi_channel, obj_channel, mask_channel, keys, vals) {
 	/*
 	 * Process a files listed in a csv file 'tablename'
 	 * The table can have the columns 'Filename', 'Condition', 'Channel Names', 'ROI channel', 'Object Channel'
@@ -152,7 +152,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		
 		print("Loading " + filename + " with condition " + condition);		
 		run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
-		process_image(filename, condition, channel_names, roi_channel, obj_channel, mask_channel, all_keys, all_vals);		
+		process_image(filename, condition, channel_names, roi_channel, obj_channels, mask_channel, all_keys, all_vals);		
 		close();
 		print("\n");
 		// save temporary version of the roi and obj table in case of crash.
@@ -214,7 +214,11 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	 * 	- resample the image
 	 * 	- segment ROI in roi_channel
 	 * 	- compute distance map 
-	 */
+	 */	
+
+	keys = Array.concat(keys, newArray("Filename","Condition"));
+	vals = Array.concat(vals, newArray(filename,condition));
+	
 	colors = getColors(colors_str); 
 	chstr = "Channel Names : ";
 	for (i = 0; i < channel_names.length; i++) {
@@ -237,7 +241,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (channel_names.length != channels) {
-		exit("*** Error not enough channel names !***");
+		exit("*** Error not matching channel names with number of channels !***");
 		return 1;
 	}
 	
@@ -250,9 +254,9 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	dist = createSignedDistanceStack(img1, rois);	
 	
 	if (remove_border) {
-		parents = keepRoiNotTouchingImageEdges(rois,dist,10);
+		nrois = keepRoiNotTouchingImageEdges(rois,dist,10);
 	} else {
-		parents = rois;
+		nrois = Array.copy(rois);
 	}
 	
 	if (maskbg) {
@@ -260,30 +264,28 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 		applyBackground(dist, bg);	
 		selectImage(bg); close();
 	}
-	
-	parents = getDistROI(dist);
-	
-	run("Select None");
+	closeRoiManager();	
+	parents = getDistROI(dist);	
+	selectImage(dist); close();				
+	selectImage(img1);run("Select None");
 	img2 = preprocess(img1, preprocess_type, scale);
 	print("Number of Parent ROI: " + parents.length);
 	thresholds = getChannelThresholds(img2, obj_channels, obj_logpfa);		
 	children = getAllchildrenROI(img2, parents, obj_channels, thresholds, "0-Infinity", "0.0-1.0", colors);
 	print("Number of Children ROI: " + children.length);	
 	children_channel = getROIChannels(children);
-	measureColocalization(tbl1, img1, img2, obj_channels, thresholds, parents, children, children_channel, onoriginal, channel_names);
+	measureColocalization(tbl1, img1, img2, obj_channels, thresholds, parents, children, children_channel, onoriginal, channel_names, keys,vals);
 
 	selectImage(img2);close();
 	selectImage(img1);
 	run("Make Composite");	
 	roiManager("show none");
-	Overlay.remove;
+	Overlay.remove;	
 	addOverlays(parents, true);
-	addOverlays(children, false);
-	addDistOverlay(img1,dist);	
-	selectImage(dist); close();
+	addOverlays(children, false);		
 	closeRoiManager();	
 	run("Collect Garbage");
-	run("Select None");
+	run("Select None");	
 	return 0;
 }
 
@@ -304,15 +306,25 @@ function applyBackground(dist, bg) {
 	}
 }
 
+function removeROI(rois) {
+	a = Array.copy(rois);
+	Array.sort(a);
+	for (i = a.length-1; i >= 0; i--) {
+		roiManager("select", a[i]);
+		roiManager("delete");
+	}
+}
+
 function addOverlays(rois, addlabel) {	
 	/*
 	 * Add overlay for the roi whose indices are listed in the array 'rois'
 	 */
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	for (i = 0; i < rois.length; i++) {	
-		roiManager("select", rois[i]);
-		Overlay.addSelection(Roi.getStrokeColor, 0.5);
-		Overlay.add();		
+	for (i = 0; i < rois.length; i++) {			
+		roiManager("select", rois[i]);								 
+		Overlay.addSelection(Roi.getStrokeColor, 2);
+		Overlay.setPosition(0,0,0);
+		Overlay.show();	
 		if (addlabel) {
 			setColor("white");
 			Overlay.drawString(""+rois[i]+1, getValue("X")/pixelWidth-5, getValue("Y")/pixelHeight);			
@@ -346,16 +358,16 @@ function generateTestImage() {
 	n = 10; // number of spots / roi	
 	D = 4*d; // cell size
 	newImage("HyperStack", "32-bit composite-mode", w, h, 3, 1, 1);
+	Stack.setChannel(1); run("Blue");
+	Stack.setChannel(2); run("Red");
+	Stack.setChannel(3); run("Green");
 	//rho = newArray(0,0.125,0.25,0.5,0.75,1); // amount of colocalization for each ROI
 	rho = Array.getSequence(N);
 	setColor(255);
 	for (roi = 0; roi < rho.length;roi++) {
 		rho[roi] = rho[roi] / (rho.length-1);
 		makeRectangle(roi*(w/rho.length)+d, d, (w/rho.length)-2*d, h-2*d);
-		Roi.setPosition(1,1,1);
-		roiManager("Add");
-		//makeRectangle(roi*(w/rho.length)+d+((w/rho.length))/2-D, d+(w/rho.length)/2, (w/rho.length)-2*d, h-2*d);
-		//roiManager("select", roi);
+		Roi.setPosition(1,1,1);		
 		rx = getValue("BX");
 		ry = getValue("BY");
 		rw = getValue("Width");
@@ -376,7 +388,7 @@ function generateTestImage() {
 			}
 		}
 		Stack.setChannel(1);
-		makeOval(rx+rw/2-D/2+D*random, ry+rh/2-D/2+D*random, D, D);
+		makeOval(rx+rw/2-D/2, ry+rh/2-D/2, D, D);
 		fill();
 	}
 	run("Select None");
@@ -386,10 +398,7 @@ function generateTestImage() {
 	roiManager("show all");
 	run("Stack to Hyperstack...", "order=xyczt(default) channels=3 slices=1 frames=1 display=Color");
 	for (i=1;i<=3;i++) {	Stack.setChannel(i); resetMinAndMax();}	
-	Stack.setChannel(1); run("Blue");
-	Stack.setChannel(2); run("Red");
-	Stack.setChannel(3); run("Green");
-	run("Stack to Hyperstack...", "order=xyczt(default) channels=3 slices=1 frames=1 display=Composite");
+	run("Stack to Hyperstack...", "order=xyczt(default) channels=3 slices=1 frames=1 display=Composite");	
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -787,7 +796,7 @@ function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {
 	return newArray(N1,N2,N12);
 }
 
-function measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, on_original, channel_names) {
+function measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, on_original, channel_names, keys, vals) {
 	/* Measure the colocalization and report by parents
 	 * 
 	 */
@@ -855,8 +864,11 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					O = objectColoc(ch1, ch2, children, children_channel, union_mask);
 								
 					// saving results to table					
-					row = createTable(tblname);
-					Table.set("ROI", row, parent_id+1);
+					row = createTable(tblname);		
+					for (k = 0; k < keys.length; k++) {
+						Table.set(keys[i], row, vals[i]);
+					}							
+					Table.set("ROI", row, parents[parent_id]+1);
 					Table.set("Ch1", row, channel_names[ch1-1]);
 					Table.set("Ch2", row, channel_names[ch2-1]);
 					Table.set("Pearson", row, pcc[0]);
@@ -889,7 +901,8 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					
 					Table.set("Mean Ch2", row, pcc[3]);
 					Table.set("Stddev Ch2", row, pcc[4]);
-					Table.set("Max Ch2", row, m2);		
+					Table.set("Max Ch2", row, m2);					
+					
 				}	else {
 					print("empty set");
 				}	
@@ -1053,14 +1066,25 @@ function getDistROI(dist) {
 	selectImage(dist);
 	N = nSlices;
 	roi = newArray(N);
+	run("Select None");
 	for (n = 1; n <= N; n++) {
 		selectImage(dist);
 		setSlice(n);
 		setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
 		run("Create Selection");
-		roiManager("add");
-		roi[n-1] = roiManager("count")-1;		
+		if (0) {
+			roiManager("select", n-1);
+			run("Restore Selection");
+			roiManager("update");
+			roi[n-1] = n-1;
+		} else {
+			Roi.setStrokeColor("white");
+			roiManager("add");			
+			roi[n-1] = roiManager("count")-1;		
+		}
+		resetThreshold;
 	}
+	run("Select None");
 	return roi;
 }
 

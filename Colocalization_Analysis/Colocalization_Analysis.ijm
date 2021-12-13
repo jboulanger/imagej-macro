@@ -614,7 +614,7 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					row = createTable(tblname);
 					Table.set("Image",row,imagename);
 					Table.set("Condition", row, condition);
-					Table.set("ROI", row, parent_id+1);
+					Table.set("ROI", row, parents[parent_id]+1);
 					Table.set("Ch1", row, channel_names[ch1-1]);
 					Table.set("Ch2", row, channel_names[ch2-1]);
 					Table.set("Pearson", row, pcc[0]);
@@ -660,13 +660,11 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 function addOverlays(rois, roi_channels, colors) {	
 	/* Add overlay for the roi whose indices are listed in the array 'rois' */		
 	for (i = 0; i < rois.length; i++) {		
-		roiManager("select", rois[i]);
-		roiManager("Remove Channel Info");
-		roiManager("Remove Slice Info");
-		roiManager("Remove Frame Info");
-		print(colors[roi_channels[i]-1]);
+		roiManager("select", rois[i]);				
 		Overlay.addSelection(colors[roi_channels[i]-1], 1);
+		Overlay.setPosition(0,0,0);
 	}
+	Overlay.show();
 }
 
 function removeROI(rois) {
