@@ -1,12 +1,12 @@
+#@String(label="experimental group", description="record an experiement group for book keeping", value="unknown") condition
 #@String(label="preprocessing", description="type of object detection", choices={"LoG","Rolling Ball","None"}) preprocess_type
 #@Float(label="scale [px]", description="scale of the object to detect", value=2, min=1, max=10, style="slider") scale
 #@Float(label="Specificity",description="set the specificity", value=0.25) specificity
 #@String(label="area [px]", description="filter object by area, use min-max to set range",value="5-Infinity") areafilter
 #@String(label="circularity", description="filter object by circ., use min-max to set range", value="0.5-1") circfilter
-#@String(label="overlay colors", description="comma separated list of colors for control overlay", value="blue,red,green,white") colstr
-#@String(label="channel names", description="comma separated list of value of channel name", value="A B C") tagstr
-#@String(label="experimental condition", description="record an experiement group for book keeping", value="unknown") condition
-#@Boolean(label="Perform colocalization?", description="enable/disable the colocalization", value=true) docoloc
+#@String(label="overlay colors", description="comma separated list of colors for control overlay", value="blue,red,green,white") colors_str
+#@String(label="channel names", description="comma separated list of value of channel name", value="A,B,C") channel_name_str
+#@String(label="channels", description="comma separated list of value of channel", value="1,2") channel_str
 #@Boolean(label="Colocalize on original?", description="use the original image of the preprocessed image", value=true) onoriginal
 	
 /*
@@ -46,8 +46,7 @@
  * - ROI : index of the ROI 
  * - ch1 : first channel 
  * - ch2 : second channel
- * - pearson: Pearson's correlation coefficient (PCC) sum ((R-mR) (G-mG)) / sum((R-mR)^2) * sum((G-mG)^2)
- * - spearman: Spearman rank correlation coefficient
+ * - pearson: Pearson's correlation coefficient (PCC) sum ((R-mR) (G-mG)) / sum((R-mR)^2) * sum((G-mG)^2) 
  * - M1 : 1st Mander's coefficient : sum of ch1 intensity in overlap / sum of ch1 intensity in roi 1
  * - M2 : 2nd Mander's coefficient : sum of ch2 intensity in overlap / sum of ch2 intensity in roi 2
  * - MOC : Mander's overlap coefficient sum (ch1 ch2) / sum(ch1^2) * sum(ch2^2)
@@ -70,11 +69,9 @@
  * 
  * Jerome Boulanger for Yohei 2021
  */
-
-logpfa = -specificity;
-
+ 
+print("\\Clear");
 // Initialization
-
 if (nImages==0) {
 	closeThis("ROI Manager");
 	generate_test_image();
@@ -87,214 +84,255 @@ if (roiManager("count")==0) {
 if (roiManager("count")==0) {
 	exit("ROI manager was empty.");
 }
-
-print("Processing image "+getTitle()+" with scale:"+ scale + " logpfa:" + logpfa + " filters size:"+areafilter + ", circ:" + circfilter);
-tstart = getTime();
 setBatchMode("hide");
+tblname = "coloc.csv";
+channels = parseCSVnumbers(channel_str);
+channel_names = getChannelNames(channel_name_str);
+colors = getColors(colors_str);
+img1 = getImageID();
+img2 = preprocess(img1, preprocess_type, scale);
+parents = getROIList();
+print("Number of Parent ROI: " + parents.length);
+thresholds = getChannelThresholds(img2, channels, -specificity);
+children = getAllchildrenROI(img2, parents, channels, thresholds, areafilter, circfilter, colors);
+print("Number of Children ROI: " + children.length);
+if (children.length > 1000) {exit;}
+children_channel = getROIChannels(children);
+measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, onoriginal, channel_names);
+selectImage(img2); close();
+run("Make Composite");
+roiManager("show all without labels");
+setBatchMode("exit and display");
+print("Done");
 
-
-// get image dimensions for loop over channels and pixel sizes for roi position
-Stack.getDimensions(width, height, channels, slices, frames);
-getPixelSize(unit, pixelWidth, pixelHeight);
-
-// get the colors as an array of string
-colors = split(colstr," ");
-while (colors.length < channels) {
-	colors = Array.concat(colors, "yellow");
-}
-
-// get the tags for each channel
-tags = split(tagstr," ");
-while (tags.length < channels) {
-	tags = Array.concat(tags, newArray("ch"+(1+tags.length)));
-}
-
-// retreive the id of the image and name
-id0 = getImageID(); name = getTitle();
-
-// clear overlays
-Overlay.remove();
-
-// add initial ROI as white
-roi0 = newArray(roiManager("count"));
-roi0 = Array.getSequence(roiManager("count"));
-colorROI(roi0,"white",true);
-
-// Processing
-
-// preprocess the image
-if (matches(preprocess_type, "LoG")) {
-	id  = preprocess1(scale);
-} else if(matches(preprocess_type, "Rolling Ball")) {
-	id  = preprocess2(scale);
-} else {
-	run("Select None");
-	run("Duplicate...", "duplicate");
-	id = getImageID();
-}
-
-if (onoriginal) {
-	idcoloc = id0;
-} else {
-	idcoloc = id;
-}
-
-// retreive ROI for each channels (allows to filter out by shape)
-roi_channel = newArray(); // store the channel of the ROI
-all_childs = newArray();
-thresholds = newArray(channels);
-for (c = 1; c <= channels; c++) {
-	print(" - processing channel " + c + "/" + channels);
-	selectImage(id);
-	run("Select None");
-	run("Duplicate...", "duplicate channels="+c);
-	run("Select None");
-	thresholds[c-1] = defineThreshold(logpfa);
-	getStatistics(area, mean, min, max, std, histogram);
-	setThreshold(thresholds[c-1], max);
-	// add all ROI within the ROI list
-	childs = addChildROI(roi0, areafilter, circfilter);
-	// Close the temporary image
-	close();
-	// add the overlay
-	selectImage(id0); Stack.setChannel(c);
-	colorROI(childs, colors[c-1], false);
-	setColor(colors[c-1]);
-	setFont("Arial", 20, "bold");
-	Overlay.drawString(tags[c-1], 5, c*20);
-	// store the ROI for this channel
-	roi_col = newArray(childs.length);
-	for (i = 0; i < roi_col.length; i++) { roi_col[i] = c;}
-	roi_channel = Array.concat(roi_channel, roi_col);
-	all_childs = Array.concat(all_childs, childs);
-}
-
-if (docoloc) {
-	print(" - Colocolization");
-	// Compute the colocalization coefficients
-	tblname = "Colocalization.csv";
-	if (!isOpen(tblname)) {
-		Table.create(tblname);
+function getColors(str) {
+	colors = split(str,",");
+	Stack.getDimensions(width, height, channels, slices, frames);
+	while (colors.length < channels) {
+		colors = Array.concat(colors, "yellow");
 	}
-	
-	for (k = 0; k < roi0.length; k++) {
-		showProgress(k, roi0.length);
-		roiManager("select",roi0[k]);
-		Roi.getBounds(rx, ry, rwidth, rheight);
-		run("Select None");
-		roi_area = rwidth*rheight;
-		for (c1 = 1; c1 <= channels; c1++) {
-			for (c2 = c1+1; c2 <= channels; c2++) {
-				// compute the union of roi in roi0[k] and channel 1 and 2
-				union = newArray(all_childs.length);
-				l = 0;
-				for (i = 0; i < all_childs.length; i++) {
-					// if they belong one of the two channels and roi k
-					if (roi_channel[i] == c1 || roi_channel[i] == c2) {
-						if (hasROI(roi0[k], all_childs[i])){
-							union[l] = all_childs[i];
-							l++;
-						}
-					}
-				}
-				union = Array.trim(union,l);
-				// Measure the instensity in both channels
-				selectImage(id);
-				roiManager("select", union);
-				roiManager("combine");
-				Stack.setChannel(c1);
-				x1 = getIntensities();
-				Stack.setChannel(c2);
-				x2 = getIntensities();
-	
-				selectImage(id0);
-				run("Restore Selection");
-				Stack.setChannel(c1);
-				m1 = getValue("Max");
-				y1 = getIntensities();
-				Stack.setChannel(c2);
-				m2 = getValue("Max");
-				y2 = getIntensities();
-			
-				// Compute the colocalization measures
-				if (onoriginal) {
-					pcc = pearson(x1, x2);
-					rs  = spearman(x1, x2);
-					M   = manders(x1,x2,y1,y2,thresholds[c1-1],thresholds[c2-1]);
-				} else {
-					pcc = pearson(y1, y2);
-					rs  = spearman(y1, y2);
-					M   = manders(x1,x2,x1,x2,thresholds[c1-1],thresholds[c2-1]);
-				}
-							
-				// saving results
-				selectWindow(tblname);
-				row = Table.size();
-				Table.set("Condition", row, condition);
-				Table.set("Image", row, name);
-				Table.set("ROI", row, k+1);
-				Table.set("Ch1", row, tags[c1-1]);
-				Table.set("Ch2", row, tags[c2-1]);
-				Table.set("Pearson", row, pcc[0]);
-				Table.set("Spearman", row, rs);
-				Table.set("M1", row, M[0]);
-				Table.set("M2", row, M[1]);
-				Table.set("MOC", row, M[2]);
-				Table.set("Area Object 1 [px]", row, M[3]);
-				Table.set("Area Object 2 [px]", row, M[4]);
-				Table.set("Area Intersection [px]", row, M[5]);
-				Table.set("Mean Ch1 in Object 1", row, M[6]);
-				Table.set("Mean Ch2 in Object 2", row, M[7]);
-				Table.set("Mean Ch1 in Intersection", row, M[8]);
-				Table.set("Mean Ch2 in Intersection", row, M[9]);
-				Table.set("Mean Ch1", row, pcc[1]);
-				Table.set("Stddev Ch1 ", row, pcc[2]);
-				Table.set("Max Ch1", row, m1);
-				Table.set("Mean Ch2", row, pcc[3]);
-				Table.set("Stddev Ch2", row, pcc[4]);
-				Table.set("Max Ch2", row, m2);
-				Table.set("D", row, (M[5]-M[3]*M[4]/roi_area)/roi_area);
-				Table.set("preprocessing",row, preprocess_type);
-				Table.set("scale",row, scale);
-				Table.set("logpfa",row, logpfa);
-				Table.set("min area",row, areafilter);
-				Table.set("use original",row, onoriginal);
+	return colors;
+}
+
+function getChannelNames(str) {
+	// get the tags for each channel
+	a = split(str,",");
+	Stack.getDimensions(width, height, channels, slices, frames);
+	while (a.length < channels) {
+		a = Array.concat(a, newArray("ch"+(1+tags.length)));
+	}
+	return a;
+}
+
+function parseCSVnumbers(str) {
+	// return array of numbers from comma separated string
+	a = split(str,",");
+	b = newArray(a.length);
+	for (i=0;i<a.length;i++){b[i] = parseFloat(a[i]);}
+	return b;
+}
+
+
+function closeThis(t){
+	/* Close the window with title t if opened */	
+	if (isOpen(t)) {
+		selectWindow(t);
+		run("Close");
+	}
+}
+
+function generate_test_image() {
+	w = 1200; // width of the image
+	h = 200; // height of the image
+	d = 10; // size of the spots
+	N = 5; // number of of roi
+	n = 5; // number of spots / roi	
+	newImage("HyperStack", "32-bit composite-mode", w, h, 2, 1, 1);
+	//rho = newArray(0,0.125,0.25,0.5,0.75,1); // amount of colocalization for each ROI
+	rho = Array.getSequence(N);
+	setColor(255);
+	for (roi = 0; roi < rho.length;roi++) {
+		rho[roi] = rho[roi] / (rho.length-1);
+		makeRectangle(roi*(w/rho.length)+d, d, (w/rho.length)-2*d, h-2*d);
+		Roi.setPosition(1,1,1);
+		roiManager("Add");
+		//roiManager("select", roi);
+		rx = getValue("BX");
+		ry = getValue("BY");
+		rw = getValue("Width");
+		rh = getValue("Height");
+		for (i=0;i<n;i++) {
+			x = rx + (rw-d) * random;
+			y = ry + (rh-d) * random;
+			t = random;
+			if (t < 0.5+rho[roi]/2) {
+				Stack.setChannel(1);
+				makeOval(x, y, d, d);
+				fill();
+			}
+			if (t > 0.5-rho[roi]/2) {
+				Stack.setChannel(2);
+				makeOval(x, y, d, d);
+				fill();
 			}
 		}
 	}
-}
-// Close the processed image
-selectImage(id); close();
-clearROI(all_childs);
-// exit batch mode
-setBatchMode("show");
-selectImage(id0);
-Stack.setChannel(1);
-print("Done");
-
-
-
-// Preprocessing functions
-function preprocess1(scale) {
 	run("Select None");
-	run("Duplicate...","title=tmp duplicate");
-	id = getImageID();
-	run("32-bit");
-	run("Square Root", "stack");
-	run("Gaussian Blur...", "sigma="+scale+" stack"); 
-	run("Convolve...", "text1=[-1 -1 -1\n-1 8 -1\n-1 -1 -1\n] normalize stack");
-	return id;
+	run("Gaussian Blur...", "sigma=2");
+	run("Add Specified Noise...", "standard=5");
+	rename("Test Image");
+	roiManager("show all");
+	run("Stack to Hyperstack...", "order=xyczt(default) channels=2 slices=1 frames=1 display=Color");
+	Stack.setChannel(1); resetMinAndMax();
+	Stack.setChannel(2); resetMinAndMax();	
 }
 
-function preprocess2(scale) {
+function preprocess(id0, preprocess_type, scale) {
+	selectImage(id0);	
+	if (matches(preprocess_type, "LoG")) {		
+		run("Select None");
+		run("Duplicate...","title=tmp duplicate");
+		run("32-bit");		
+		run("Square Root", "stack");
+		run("Gaussian Blur...", "sigma="+scale+" stack"); 
+		run("Convolve...", "text1=[-1 -1 -1\n-1 8 -1\n-1 -1 -1\n] normalize stack");
+	} else if(matches(preprocess_type, "Rolling Ball")) {
+		run("Select None");
+		run("Duplicate...","title=tmp duplicate");
+		run("32-bit");		
+		run("Gaussian Blur...", "sigma=0.25 scaled stack");
+		run("Subtract Background...", "rolling="+5*scale+" stack");
+		run("Median...", "radius="+scale+" stack");
+	} else {
+		run("Select None");
+		run("Duplicate...", "duplicate");		
+	}
+	run("Stack to Hyperstack...", "order=xyczt(default) channels=2 slices=1 frames=1 display=Color");	
+	return getImageID();
+}
+
+function getROIList() {
+	/* Get the list of index of the ROI starting from 0.*/
+	roi = newArray(roiManager("count"));
+	roi = Array.getSequence(roiManager("count"));	
+	return roi;
+}
+
+function getChannelThresholds(img, channels, logpfa) {
+	/* Return an array of threshold for each channel
+	 * img     : id of the window to process
+	 * channel : list of channels (array)
+	 * logpfa  : log probability of false alarm
+	 */
+	selectImage(img);		
+	run("Select None"); 
+	thresholds = newArray(channels.length);
+	for (i = 0; i < channels.length; i++) {
+		c = channels[i];		
+		Stack.setChannel(c);				
+		thresholds[c-1] = defineThreshold(logpfa);		
+	}
+	return thresholds;
+}
+
+function getAllchildrenROI(img, parents, channels, thresholds, areafilter, circfilter, colors) {
+	/* Create ROI given the list of thresholds for each channel and return the 
+	 * list of indices of ROI belonging to all ROI
+	 */
+	selectImage(img);
+	all_children = newArray();	
+	for (i = 0; i < channels.length; i++) {		
+		children = addChildROI(parents, channels[i], thresholds[i], areafilter, circfilter, colors[channels[i]-1]);
+		all_children = Array.concat(all_children, children);
+	}
+	roiManager("Show All without labels");
+	return all_children;
+}
+
+function getROIChannels(rois) {
+	/* returns the list of channel of the ROIs from their positions
+	 * Input
+	 * rois : array of ROI indices
+	 * Output: array of channel for each roi
+	 */
+	roi_channels = newArray(rois.length);
+	for (i = 0; i < rois.length; i++) {
+		roiManager("select", rois[i]);
+		//Roi.getPosition(channel, slice, frame);
+		Stack.getPosition(channel, slice, frame);		
+		roi_channels[i] = channel;
+	}	
+	return roi_channels;
+}
+
+function addChildROI(parents, channel, threshold, area, circ,color) {
+	/* Add regions above threshold to the ROI manager and set the channel
+	 * Input:
+	 * parents : array of parent roi
+	 * area : area filter
+	 * circ : circularity filter
+	 * channel : channel 
+	 */
 	run("Select None");
-	run("Duplicate...","title=tmp duplicate");
-	run("32-bit");
-	id = getImageID();
-	run("Gaussian Blur...", "sigma=0.25 scaled stack");
-	run("Subtract Background...", "rolling="+5*scale+" stack");
-	run("Median...", "radius=2 stack");
-	return id;
+	Stack.getDisplayMode(display_mode);
+	Stack.setDisplayMode("grayscale"); // to enable threshold on channel	
+	// Select all parents to restrict analuse particle to the part of the image in parents ROI	
+	if (parents.length > 1) {
+		roiManager("select", parents);
+		roiManager("combine");
+	} else {
+		roiManager("select", parents[0]);
+	}
+	
+	Stack.setChannel(channel);
+	getStatistics(area, mean, min, max, std, histogram);
+	setThreshold(threshold, max);	
+	// add new roi to the ROI manager
+	n0 = roiManager("count");
+	//run("Analyze Particles...", "size="+area+" pixel circularity="+circ+" add");
+	run("Analyze Particles...", "add");
+	n1 = roiManager("count");	
+	roiManager("show all");
+	children = newArray(n1 - n0);
+	for (i = 0; i < children.length; i++) {
+		roiManager("select", n0+i);
+		Roi.setPosition(channel, 1, 1);		
+		Roi.setStrokeColor(color);
+		roiManager("update");
+		children[i] = n0 + i;
+	}	
+	Stack.setDisplayMode(display_mode);
+	return children;
+}
+
+function hasROIAny(r1, r2) {
+	// Test if ROI r2 belong to ROI r2
+	ret = false;
+	roiManager("select", r2);
+	Roi.getCoordinates(x, y);
+	roiManager("select", r1);	
+	for (i = 0; i < x.length; i++) {
+		if (Roi.contains(x[i], y[i])) {
+			ret = true;
+			break;
+		}
+	}
+	return ret;
+}
+
+function hasROIAll(r1, r2) {
+	// Test if ROI r2 belong to ROI r2
+	ret = true;
+	roiManager("select", r2);
+	Roi.getCoordinates(x, y);
+	roiManager("select", r1);	
+	for (i = 0; i < x.length; i++) {
+		if (!Roi.contains(x[i], y[i])) {
+			ret = false;
+			break;
+		}
+	}
+	return ret;
 }
 
 function defineThreshold(logpfa) {
@@ -324,12 +362,33 @@ function laplaceparam() {
 	return newArray(m,b/n);
 }
 
-function closeThis(t){
-	if (isOpen(t)){selectWindow(t);run("Close");}
+function getchildrenUnionInParents(channels, parents, children, child_channels,union_mask) {	
+	/* Union of children in given parent and in either channels
+	 * Output:
+	 * union : the list of indices in ROI manager of selected roi
+	 * union_mask : array where the indices of selected children is 1
+	 */
+	union = newArray(children.length);
+	l = 0;
+	for (i = 0; i < children.length; i++) {
+		// if they belong one of the two channels and roi k
+		test = false;
+		for (j = 0; j < channels.length; j++) {
+			test = test || (child_channels[i] == channels[j]);
+		}
+		if (test) {
+			if (hasROIAny(parents, children[i])) {	
+				union[l] = children[i];
+				union_mask[i] = true;
+				l++;
+			}
+		} else {
+			union_mask[i] = false;
+		}
+	}
+	union = Array.trim(union,l);
+	return union;
 }
-
-// Colocalization functions
-
 function getIntensities() {
 	// Get the intensities inside the current ROI as an array
 	Roi.getContainedPoints(xpoints, ypoints);
@@ -341,28 +400,47 @@ function getIntensities() {
 }
 
 
-function pearson(x1, x2) {
-	// Peason correlation coefficient
-	//
-	// return an array  0:pcc,1:m1,2:sigma1,3:mu2,4:sigma2
+function spearman(x1,x2) {
+	// https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient
+	// The ranking function is not consistent with other statistical software	
+	r1 = Array.rankPositions(x1);
+	r2 = Array.rankPositions(x2);
+	pcc = pearson(r1,r2);	
+	return -pcc[0];
+}
+
+function pearson(x1, x2) {	
+	// Peason correlation coefficient	
+	// return an array  0:pcc,1:mu1,2:sigma1,3:mu2,4:sigma2
+	if (x2.length != x1.length ) {
+		print("non matching array length in prearson x1:"+x1.length+", x2:"+x2.length);
+	} 
 	Array.getStatistics(x1, min1, max1, mu1, sigma1);
 	Array.getStatistics(x2, min1, max1, mu2, sigma2);
 	n = x1.length;
 	sxy = 0;
+	sxx = 0;
+	syy = 0;
 	for (i = 0; i < x1.length; i++) {
 		sxy += (x1[i]-mu1)*(x2[i]-mu2);
+		sxx += (x1[i]-mu1)*(x1[i]-mu1);
+		syy += (x2[i]-mu2)*(x2[i]-mu2);
 	}
-	pcc = sxy / ((n-1) * sigma1 * sigma2);
+	pcc = sxy / (sqrt(sxx)*sqrt(syy)); 
 	return newArray(pcc,mu1,sigma1,mu2,sigma2);
 }
 
 function manders(x1,x2,y1,y2,t1,t2) {
 	// Manders overlap coeffcicients
 	// x1: value of preprocess image in channel 1
-	// x2: value of preprocess image in channel 1
-	
+	// x2: value of preprocess image in channel 1	
 	// t1 and t2 are threshold values
 	// return an array: 0:m1, 1:m2, 2:moc, 3:n1, 4:n2, 5:n12 
+
+	if (x2.length != x1.length || y1.length != x1.length || y2.length != x1.length) {
+		print("non matching array length in manders x1:"+x1.length+", x2:"+x2.length+"y1:"+y1.length+", y2:"+y2.length);		
+	} 
+	
 	n1 = 0;
 	n2 = 0;
 	n12 = 0;
@@ -387,125 +465,165 @@ function manders(x1,x2,y1,y2,t1,t2) {
 	return newArray(m1,m2,moc,n1,n2,n12,s1/n1,s2/n2,s12/n12,s21/n12);
 }
 
-function spearman(x1,x2) {
-	// https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient
-	r1 = Array.rankPositions(x1);
-	r2 = Array.rankPositions(x2);
-	sd2 = 0;
-	n = r1.length;
-	for (i = 0; i < n; i++) {
-		d = i - r2[r1[i]];
-		sd2 = sd2 + d*d;
+function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {	
+	/* Object based colocalization
+	 *  
+	 */
+	if (rois.length != roi_channels.length) {
+		print("In objectColoc rois ("+rois.length+") and roi_channels ("+roi_channels.length+") non matching length.")
 	}
-	rho = 1 - 6 * sd2 / (n*(n*n-1));
-	return rho;
-}
-
-// ROI related functions
-
-function addChildROI(parents, area, circ) {
-	// get all region with in parents to the ROI manager
-	n0 = roiManager("count");
-	if (parents.length > 1) {
-		roiManager("select", parents);
-		roiManager("combine");
-	} else {
-		roiManager("select", parents[0]);
+	if (rois.length != union_mask.length) {
+		print("In objectColoc rois ("+rois.length+") and union_mask ("+union_mask.length+") non matching length.")
 	}
-	run("Analyze Particles...", "size="+area+" pixel circularity="+circ+" add");
-	n1 = roiManager("count");
-	roiManager("show none");
-	childs = newArray(n1-n0);
-	for (i = 0; i < childs.length; i++) {
-		childs[i] = n0 + i;
+	print("ch1:" + ch1 + ", ch2:" + ch2);
+	Array.print(roi_channels);
+	Array.print(union_mask);
+	// Compute a subset for rois and roi_channels
+	n = 0;
+	for (i = 0; i < union_mask.length; i++) if (union_mask[i]) {
+		n++;
 	}
-	return childs;
-}
-
-function hasROI(r1, r2) {
-	// Test if ROI r2 belong to ROI r2
-	ret = false;
-	roiManager("select", r2);
-	Roi.getCoordinates(x, y);
-	roiManager("select", r1);	
-	for (i = 0; i < x.length; i++) {
-		if (Roi.contains(x[i], y[i])) {
-			ret = true;
-			break;
+	subset = newArray(n);
+	channels = newArray(n);
+	j = 0;
+	for (i = 0; i < union_mask.length; i++) if (union_mask[i]) {
+		subset[j] = rois[i];
+		channels[j] = roi_channels[i];
+		j++;
+	}
+	print("Subset size " + subset.length );
+	N1 = 0;
+	N2 = 0;
+	N12 = 0;	
+	for (i = 0; i < subset.length; i++) {		
+		ci = channels[i];
+		// count the number of roi in each channel
+		if (ci == ch1) {
+			N1++;
+		} else if (ci == ch2) {
+			N2++;
 		}
-	}
-	return ret;
-}
-
-function colorROI(roi,color,addlabel) {
-	// Add the ROI as overlay in color with an optional label 
-	Stack.getPosition(channel, slice, frame);
-	for (i = 0; i < roi.length; i++) {
-		roiManager("select", roi[i]);
-		Overlay.addSelection(color);
-		Overlay.setPosition(1, slice, frame);
-		Overlay.show();
-		if (addlabel) {
-			setColor("white");
-			setFont("Arial", 40);
-			Overlay.drawString(""+(i+1), getValue("X")/pixelWidth, getValue("Y")/pixelHeight);
-			Overlay.add();
-			Overlay.show();
-		}
-	}
-}
-
-function clearROI(roi) {
-	// remove ROIs from the roi manager
-	tmp  = Array.sort(roi);
-	for (i = tmp.length-1; i >= 0; i--) {
-		if (tmp[i] < roiManager("count")) {
-			roiManager("select", tmp[i]);
-			roiManager("delete");
-		}
-	}
-}
-
-
-function generate_test_image() {
-	w = 1200;
-	h = 200;
-	d = 10;
-	n = 30;
-	newImage("HyperStack", "32-bit composite-mode", w, h, 2, 1, 1);
-	//rho = newArray(0,0.125,0.25,0.5,0.75,1); // amount of colocalization for each ROI
-	rho = Array.getSequence(10);
-	setColor(255);
-	for (roi = 0; roi < rho.length;roi++) {
-		rho[roi] = rho[roi] / (rho.length-1);
-		makeRectangle(roi*(w/rho.length)+d, d, (w/rho.length)-2*d, h-2*d);
-		roiManager("Add");
-		//roiManager("select", roi);
-		rx = getValue("BX");
-		ry = getValue("BY");
-		rw = getValue("Width");
-		rh = getValue("Height");
-		for (i=0;i<n;i++) {
-			x = rx + (rw-d) * random;
-			y = ry + (rh-d) * random;
-			t = random;
-			if (t < 0.5+rho[roi]/2) {
-				Stack.setChannel(1);
-				makeOval(x, y, d, d);
-				fill();
-			}
-			if (t > 0.5-rho[roi]/2) {
-				Stack.setChannel(2);
-				makeOval(x, y, d, d);
-				fill();
+		// count the number of overlap
+		for (j = i+1; j < subset.length; j++) {
+			cj = channels[j];			
+			if (ci!=cj && hasROIAny(subset[i], subset[j])) {
+				N12++;
 			}
 		}
 	}
-	run("Select None");
-	run("Gaussian Blur...", "sigma=2");
-	run("Add Specified Noise...", "standard=5");
-	rename("Test Image");
-	roiManager("show all");
-	Stack.setChannel(1); resetMinAndMax();
-	Stack.setChannel(2); resetMinAndMax();
+	return newArray(N1,N2,N12);
 }
+
+function measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, on_original, channel_names) {
+	/* Measure the colocalization and report by parents
+	 * 
+	 */
+	tblname = "Colocalization.csv";
+	if (!isOpen(tblname)) {
+		Table.create(tblname);
+	}
+	
+	if (children.length != children_channel.length) {
+		print("Children ("+children.length+") and children_channel ("+children_channel.length+") have different size in measureColocalization");
+		
+	}	
+	
+	for (parent_id = 0; parent_id < parents.length; parent_id++) {
+		
+		roiManager("select", parents[parent_id]);
+		roi_area = getValue("Area");
+		
+		for (ch1_id = 0; ch1_id < channels.length; ch1_id++) {
+			
+			ch1 = channels[ch1_id];
+			
+			for (ch2_id = ch1_id+1; ch2_id < channels.length; ch2_id++) {								
+			
+				ch2 = channels[ch2_id];
+
+				union_mask = newArray(children.length);
+				union = getchildrenUnionInParents(newArray(ch1,ch2), parents[parent_id], children, children_channel, union_mask);
+				
+				if (union.length > 0) {
+				
+					// measure intensity on processed image
+					selectImage(img2);
+					roiManager("select", union);
+					roiManager("combine");
+					
+					Stack.setChannel(ch1);
+					x1 = getIntensities();
+					Stack.setChannel(ch2);
+					x2 = getIntensities();
+					
+					// measure intensity on oringal image + min and max to detect saturation
+					selectImage(img1);
+					roiManager("select", union);
+					roiManager("combine");
+								
+					Stack.setChannel(ch1);
+					m1 = getValue("Max");
+					y1 = getIntensities();
+					Stack.setChannel(ch2);
+					m2 = getValue("Max");
+					y2 = getIntensities();
+																		
+					// Compute the colocalization measures
+					if (on_original) {
+						pcc = pearson(x1, x2);
+						rs  = spearman(x1, x2);
+						M   = manders(x1, x2,y1, y2, thresholds[ch1_id], thresholds[ch2_id]);
+					} else {
+						pcc = pearson(y1, y2);
+						rs  = spearman(y1, y2);
+						M   = manders(x1, x2, x1, x2, thresholds[ch1_id], thresholds[ch2_id]);
+					}
+
+					O = objectColoc(ch1, ch2, children, children_channel, union_mask);
+								
+					// saving results to table
+					selectWindow(tblname);
+					row = Table.size();
+					Table.set("ROI", row, parent_id+1);
+					Table.set("Ch1", row, channel_names[ch1-1]);
+					Table.set("Ch2", row, channel_names[ch2-1]);
+					Table.set("Pearson", row, pcc[0]);
+					//Table.set("Spearman", row, rs);
+					Table.set("M1", row, M[0]);
+					Table.set("M2", row, M[1]);
+					Table.set("MOC", row, M[2]);
+					Table.set("D", row, (M[5]-M[3]*M[4]/roi_area)/roi_area);
+
+					Table.set("N1", row,  O[0]);
+					Table.set("N2", row,  O[1]);
+					Table.set("N12", row, O[2]);					
+					Table.set("N12/N1", row, O[2] / O[0]);
+					Table.set("N12/N2", row, O[2] / O[1]);
+									
+					Table.set("Area Object 1 [px]", row, M[3]);
+					Table.set("Area Object 2 [px]", row, M[4]);
+					Table.set("Area Intersection [px]", row, M[5]);
+					Table.set("Intersection vs Area Object 1 [px]", row, M[3]/M[5]);
+					Table.set("Intersection vs Area Object 2 [px]", row, M[4]/M[5]);
+					
+					Table.set("Mean Ch1 in Object 1", row, M[6]);
+					Table.set("Mean Ch2 in Object 2", row, M[7]);
+					Table.set("Mean Ch1 in Intersection", row, M[8]);
+					Table.set("Mean Ch2 in Intersection", row, M[9]);
+					
+					Table.set("Mean Ch1", row, pcc[1]);
+					Table.set("Stddev Ch1 ", row, pcc[2]);
+					Table.set("Max Ch1", row, m1);
+					
+					Table.set("Mean Ch2", row, pcc[3]);
+					Table.set("Stddev Ch2", row, pcc[4]);
+					Table.set("Max Ch2", row, m2);		
+				}	else {
+					print("empty set");
+				}	
+			}
+		}
+	}
+	Table.update();
+}
+
