@@ -1,12 +1,12 @@
-#@String(label="experimental group", description="record an experiement group for book keeping", value="unknown") condition
-#@String(label="preprocessing", description="type of object detection", choices={"LoG","Rolling Ball","None"}) preprocess_type
-#@Float(label="scale [px]", description="scale of the object to detect", value=2, min=1, max=10, style="slider") scale
+#@String(label="Experimental group", description="record an experiement group for book keeping", value="unknown") condition
+#@String(label="Preprocessing", description="type of object detection", choices={"LoG","Rolling Ball","None"}) preprocess_type
+#@Float(label="Scale [px]", description="scale of the object to detect", value=2, min=1, max=10, style="slider") scale
 #@Float(label="Specificity",description="set the specificity", value=0.25) specificity
-#@String(label="area [px]", description="filter object by area, use min-max to set range",value="5-Infinity") areafilter
-#@String(label="circularity", description="filter object by circ., use min-max to set range", value="0.5-1") circfilter
-#@String(label="overlay colors", description="comma separated list of colors for control overlay", value="blue,red,green,white") colors_str
-#@String(label="channel names", description="comma separated list of value of channel name", value="A,B,C") channel_name_str
-#@String(label="channels", description="comma separated list of value of channel", value="1,2") channel_str
+#@String(label="Area [px]", description="filter object by area, use min-max to set range",value="5-Infinity") areafilter
+#@String(label="Circularity", description="filter object by circ., use min-max to set range", value="0.5-1") circfilter
+#@String(label="Overlay colors", description="comma separated list of colors for control overlay", value="blue,red,green,white") colors_str
+#@String(label="Channel names", description="comma separated list of value of channel name", value="A,B,C") channel_name_str
+#@String(label="Channels", description="comma separated list of value of channel", value="1,2") channel_str
 #@Boolean(label="Colocalize on original?", description="use the original image of the preprocessed image", value=true) onoriginal
 	
 /*
@@ -75,6 +75,7 @@ print("\\Clear");
 if (nImages==0) {
 	closeThis("ROI Manager");
 	generate_test_image();
+	channel_str = "1,2";
 }
 
 if (roiManager("count")==0) {
@@ -84,9 +85,13 @@ if (roiManager("count")==0) {
 if (roiManager("count")==0) {
 	exit("ROI manager was empty.");
 }
+
+imagename = getTitle();
+
 setBatchMode("hide");
 tblname = "coloc.csv";
 channels = parseCSVnumbers(channel_str);
+if (!checkChannels(channels)) {exit;}
 channel_names = getChannelNames(channel_name_str);
 colors = getColors(colors_str);
 img1 = getImageID();
@@ -96,13 +101,16 @@ print("Number of Parent ROI: " + parents.length);
 thresholds = getChannelThresholds(img2, channels, -specificity);
 children = getAllchildrenROI(img2, parents, channels, thresholds, areafilter, circfilter, colors);
 print("Number of Children ROI: " + children.length);
-if (children.length > 1000) {exit;}
+if (children.length > 1000) {print("Too many roi created");exit;}
 children_channel = getROIChannels(children);
 measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, onoriginal, channel_names);
 selectImage(img2); close();
 run("Make Composite");
-roiManager("show all without labels");
 setBatchMode("exit and display");
+selectImage(img1);
+addOverlays(children, children_channel, colors);
+removeROI(children);
+roiManager("show all without labels");
 print("Done");
 
 function getColors(str) {
@@ -119,9 +127,22 @@ function getChannelNames(str) {
 	a = split(str,",");
 	Stack.getDimensions(width, height, channels, slices, frames);
 	while (a.length < channels) {
-		a = Array.concat(a, newArray("ch"+(1+tags.length)));
+		a = Array.concat(a, newArray("ch"+(1+a.length)));
 	}
 	return a;
+}
+
+function checkChannels(channels_list) {
+	// check if the channels are ok
+	Stack.getDimensions(width, height, channels, slices, frames);
+	ok = true;
+	for (i = 0; i < channels_list.length; i++) {
+		if (channels_list[i]<1 && channels_list[i]>channels) {
+			ok = false;
+			print("Channel " + channels_list[i] + " is not matching the size of the stack");
+		}
+	}
+	return ok;
 }
 
 function parseCSVnumbers(str) {
@@ -141,12 +162,21 @@ function closeThis(t){
 	}
 }
 
+function createTable(name) {
+	// create a table with title 'name' if it does not exist
+	// return the size of the table
+	if (!isOpen(name)) { Table.create(name);}
+	selectWindow(name);
+	return Table.size;
+}
+
+
 function generate_test_image() {
 	w = 1200; // width of the image
 	h = 200; // height of the image
-	d = 10; // size of the spots
-	N = 5; // number of of roi
-	n = 5; // number of spots / roi	
+	d = 5; // size of the spots
+	N = 10; // number of of roi
+	n = 30; // number of spots / roi	
 	newImage("HyperStack", "32-bit composite-mode", w, h, 2, 1, 1);
 	//rho = newArray(0,0.125,0.25,0.5,0.75,1); // amount of colocalization for each ROI
 	rho = Array.getSequence(N);
@@ -189,6 +219,7 @@ function generate_test_image() {
 
 function preprocess(id0, preprocess_type, scale) {
 	selectImage(id0);	
+	name= getTitle();
 	if (matches(preprocess_type, "LoG")) {		
 		run("Select None");
 		run("Duplicate...","title=tmp duplicate");
@@ -206,8 +237,9 @@ function preprocess(id0, preprocess_type, scale) {
 	} else {
 		run("Select None");
 		run("Duplicate...", "duplicate");		
-	}
-	run("Stack to Hyperstack...", "order=xyczt(default) channels=2 slices=1 frames=1 display=Color");	
+	}			
+	run("Stack to Hyperstack...", "order=xyczt(default) channels="+nSlices+" slices=1 frames=1 display=Color");	
+	rename("Preprocess of " + name);
 	return getImageID();
 }
 
@@ -230,7 +262,7 @@ function getChannelThresholds(img, channels, logpfa) {
 	for (i = 0; i < channels.length; i++) {
 		c = channels[i];		
 		Stack.setChannel(c);				
-		thresholds[c-1] = defineThreshold(logpfa);		
+		thresholds[i] = defineThreshold(logpfa);		
 	}
 	return thresholds;
 }
@@ -257,7 +289,7 @@ function getROIChannels(rois) {
 	 */
 	roi_channels = newArray(rois.length);
 	for (i = 0; i < rois.length; i++) {
-		roiManager("select", rois[i]);
+		roiManager("select", rois[i]);		
 		//Roi.getPosition(channel, slice, frame);
 		Stack.getPosition(channel, slice, frame);		
 		roi_channels[i] = channel;
@@ -474,10 +506,8 @@ function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {
 	}
 	if (rois.length != union_mask.length) {
 		print("In objectColoc rois ("+rois.length+") and union_mask ("+union_mask.length+") non matching length.")
-	}
-	print("ch1:" + ch1 + ", ch2:" + ch2);
-	Array.print(roi_channels);
-	Array.print(union_mask);
+	}	
+	
 	// Compute a subset for rois and roi_channels
 	n = 0;
 	for (i = 0; i < union_mask.length; i++) if (union_mask[i]) {
@@ -490,8 +520,7 @@ function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {
 		subset[j] = rois[i];
 		channels[j] = roi_channels[i];
 		j++;
-	}
-	print("Subset size " + subset.length );
+	}	
 	N1 = 0;
 	N2 = 0;
 	N12 = 0;	
@@ -581,9 +610,10 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 
 					O = objectColoc(ch1, ch2, children, children_channel, union_mask);
 								
-					// saving results to table
-					selectWindow(tblname);
-					row = Table.size();
+					// saving results to table					
+					row = createTable(tblname);
+					Table.set("Image",row,imagename);
+					Table.set("Condition", row, condition);
 					Table.set("ROI", row, parent_id+1);
 					Table.set("Ch1", row, channel_names[ch1-1]);
 					Table.set("Ch2", row, channel_names[ch2-1]);
@@ -625,5 +655,26 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 		}
 	}
 	Table.update();
+}
+
+function addOverlays(rois, roi_channels, colors) {	
+	/* Add overlay for the roi whose indices are listed in the array 'rois' */		
+	for (i = 0; i < rois.length; i++) {		
+		roiManager("select", rois[i]);
+		roiManager("Remove Channel Info");
+		roiManager("Remove Slice Info");
+		roiManager("Remove Frame Info");
+		print(colors[roi_channels[i]-1]);
+		Overlay.addSelection(colors[roi_channels[i]-1], 1);
+	}
+}
+
+function removeROI(rois) {
+	a = Array.copy(rois);
+	Array.sort(a);
+	for (i = a.length-1; i >= 0; i--) {
+		roiManager("select", a[i]);
+		roiManager("delete");
+	}
 }
 
