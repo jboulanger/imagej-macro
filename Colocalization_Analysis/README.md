@@ -30,14 +30,17 @@ If there is no opened image, a test image is generated.
 
 
 ### Colocalization metrics
-For each pair of channel, we consider the intensity above a channel-wise defined threshold for the preprocessed image. The colocalization metric can be performed on the original or on the pre-processed image enabling background substraction and denoising before colocalization. 
+For each pair of channel, we consider the intensity above a channel-wise defined threshold for the preprocessed image. The colocalization metric can be performed on the original or on the pre-processed image enabling background substraction and denoising before colocalization. We denote x1 and x2 the list of intensity   preprocessed images in the union of objects in both channel and t1 and t2 the associated thresholds. The corresponding intensities in the original images are y1 and y2.
+
+![image](https://user-images.githubusercontent.com/3415561/146014868-fc83c4e1-7e6c-4549-8250-5fe202e40ea1.png)
+
 
 Here is the list of the 25 computed metrics:
 - Pearson: [Pearson's correlation coefficient ](https://en.wikipedia.org/wiki/Pearson_correlation_coefficient) is a measure of linear correlation between two channels. It ranges from -1 (anticorrelation) to 1 (correlation).
-- M1 : Manders' M1 score defined by <img src="https://render.githubusercontent.com/render/math?math=\sum R_{coloc}/\sum_R"> where <img src="https://render.githubusercontent.com/render/math?math=R_{coloc}=R"> when <img src="https://render.githubusercontent.com/render/math?math=G>0">
-- M2 : Manders's M2 score defined by <img src="https://render.githubusercontent.com/render/math?math=\sum_G_{coloc}/\sum G"> where <img src="https://render.githubusercontent.com/render/math?math=G_{coloc}=G"> when <img src="https://render.githubusercontent.com/render/math?math=R>0">
-- MOC : Mander's overlap coefficient <img src="https://render.githubusercontent.com/render/math?math=\frac{\sum RG}{\sqrt{(\sum_R^2)(\sum_G^2)}}">
-- D : Independance metric for the sets <img src="https://render.githubusercontent.com/render/math?math=D=p_{12}-p_1p_2">
+- M1 : Manders' M1 score computed as sum in blue vs sum in blue and yellow. 
+- M2 : Manders's M2 score computed as the sum in blue versus sum in blue and green
+- MOC : Mander's overlap coefficient (Pearson without substracting the mean)
+- D : Independance metric for the sets 
 - N1 : number of segmented objects in channel 1
 - N2 : number of segmented objects in channel 2
 - N12 : number of overlapping objects 
