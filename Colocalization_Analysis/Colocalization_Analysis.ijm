@@ -8,7 +8,8 @@
 #@String(label="Channel names", description="comma separated list of value of channel name", value="A,B,C") channel_name_str
 #@String(label="Channels", description="comma separated list of value of channel", value="1,2") channel_str
 #@Boolean(label="Colocalize on original?", description="use the original image of the preprocessed image", value=true) onoriginal
-	
+#@String  (label="Table name", value="colocalization.csv") tblname	
+
 /*
  * Colocalization analysis for segmented structures
  * 
@@ -89,7 +90,6 @@ if (roiManager("count")==0) {
 imagename = getTitle();
 
 setBatchMode("hide");
-tblname = "coloc.csv";
 channels = parseCSVnumbers(channel_str);
 if (!checkChannels(channels)) {exit;}
 channel_names = getChannelNames(channel_name_str);
@@ -546,8 +546,7 @@ function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {
 function measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, on_original, channel_names) {
 	/* Measure the colocalization and report by parents
 	 * 
-	 */
-	tblname = "Colocalization.csv";
+	 */	
 	if (!isOpen(tblname)) {
 		Table.create(tblname);
 	}
@@ -601,7 +600,7 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					if (on_original) {
 						pcc = pearson(x1, x2);
 						rs  = spearman(x1, x2);
-						M   = manders(x1, x2,y1, y2, thresholds[ch1_id], thresholds[ch2_id]);
+						M   = manders(x1, x2, y1, y2, thresholds[ch1_id], thresholds[ch2_id]);
 					} else {
 						pcc = pearson(y1, y2);
 						rs  = spearman(y1, y2);
@@ -649,7 +648,7 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					Table.set("Stddev Ch2", row, pcc[4]);
 					Table.set("Max Ch2", row, m2);		
 				}	else {
-					print("empty set");
+					print("empty subset for ch " + ch1 +" and " + ch2);
 				}	
 			}
 		}
