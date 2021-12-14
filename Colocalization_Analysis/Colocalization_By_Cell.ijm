@@ -260,7 +260,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	}
 	
 	if (maskbg) {
-		bg = segmentBackground(id, mask_channel, downsampling_factor);
+		bg = segmentBackground(img1, mask_channel, downsampling_factor);
 		applyBackground(dist, bg);	
 		selectImage(bg); close();
 	}
