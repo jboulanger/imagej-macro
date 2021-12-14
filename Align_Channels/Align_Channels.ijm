@@ -32,6 +32,7 @@ if (matches(mode, "Estimate")) {
 	applyTransform();
 }
 print("Done");
+
 function applyTransform() {
 	Stack.getDimensions(width, height, channels, slices, frames);
 	for (channel = 2; channel <= channels; channel++) {
