@@ -2,7 +2,7 @@
 #@Integer(label="Rows", value=3) nrows
 #@Integer(label="Horizontal overlap", value=8) overlap_x
 #@Integer(label="Vertical overlap", value=8) overlap_y
-#@String(label="Action", choices={"Split","Align","Apply","Merge"}) mode
+#@String(label="Action", choices={"Split","Align","Apply","Merge","Spread","Readout"}) mode
 
 /*
  * Split, Align & Merge tiles
@@ -36,11 +36,54 @@ if (nImages==0) {
 		align_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	} else if (matches(mode,"Apply")) {
 		apply_transform(ncolumns,nrows,overlap_x,overlap_y);
-	} else {
+	} else if (matches(mode,"Merge")){
 		merge_tiles(ncolumns,nrows,overlap_x,overlap_y);
+	} else if (matches(mode,"Spread")) {
+		spread_tiles(ncolumns,nrows,overlap_x,overlap_y);
+	} else if (matches(mode,"Readout")) {
+		readout(ncolumns,nrows,overlap_x,overlap_y);
 	}
 	//setBatchMode("show");
 	setBatchMode("exit and display");
+}
+
+function spread_tiles(ncolumns,nrows,overlap_x,overlap_y) {	
+	setBatchMode("exit and display");
+	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
+	id0 = getImageID;
+	name = getTitle();
+	Stack.getDimensions(tile_width, tile_height, channels, slices, frames);
+	nwidth = round(1.1 * ncolumns * tile_width);
+	nheight = round(1.1* nrows * tile_height);
+	newImage("HyperStack", "8-bit composite-mode", nwidth, nheight, channels, slices, 1);
+	id1 = getImageID();	
+	for (j = 0; j < nrows; j++) {
+		for (i = 0; i < ncolumns; i++) {
+			x = i * (tile_width - overlap_x) + 0.05 * ncolumns * tile_width;
+			y = j * (tile_height - overlap_y) + 0.05 * nrows * tile_height;			
+			selectImage(id0);
+			Stack.setPosition(1, 1, i+nrows*j + 1);			
+			selectImage(id1);			
+			run("Add Image...", "image=["+name+"] x="+x+" y="+y+" opacity=50 zero");	
+		}
+	}	
+	run("To ROI Manager");
+}
+
+function readout(ncolumns,nrows,overlap_x,overlap_y) {
+	n = roiManager("count");
+	for (j = 0; j < nrows; j++) {
+		for (i = 0; i < ncolumns; i++) {
+			k = i + nrows * j;
+			roiManager("select", k);			
+			//x0 = i * (tile_width - overlap_x) + 0.05 * ncolumns * tile_width;
+			//y0 = j * (tile_height - overlap_y) + 0.05 * nrows * tile_height;		
+			x0 = getValue("X");
+			y0 = getValue("Y");
+			setResult("x", k, x0);
+			setResult("y", k, y0);
+		}
+	}	
 }
 
 function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
