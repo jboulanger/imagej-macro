@@ -66,7 +66,7 @@ function estimateTransform(degree) {
 	for (channel = 2; channel <= channels; channel++) {
 		Stack.setChannel(channel);
 		M = estimateTfm(1,channel,degree);
-		cname="M1"+channel;
+		cname = "M1" + channel;
 		print("Saving model as column" + cname);
 		selectWindow("Models.csv");
 		Table.setColumn(cname, M);
