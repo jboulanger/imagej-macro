@@ -49,8 +49,7 @@ if (nImages==0) {
 		spread_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	} else if (matches(mode,"Update")) {
 		readout(ncolumns,nrows,overlap_x,overlap_y);
-	}
-	//setBatchMode("show");
+	}	
 	setBatchMode("exit and display");
 }
 
@@ -125,7 +124,8 @@ function readout(ncolumns,nrows,overlap_x,overlap_y) {
 	roiManager("Show All");	
 }
 
-function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {	
+function merge_tiles(ncolumns,nrows,overlap_x,overlap_y) {
+	// merge tiles in a mosaic
 	src = getImageID();
 	Stack.getDimensions(tile_width, tile_height, channels, slices, frames);
 	W = round(1.1*ncolumns*tile_width-(ncolumns-1)*overlap_x);
