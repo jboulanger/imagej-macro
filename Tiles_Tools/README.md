@@ -13,6 +13,10 @@ The interface is the following:
 
 ## Modes
 - Split: split the images into tiles with a determined overlap, the tiles are saved as frames in a new hyperstack
-- Align: align the tiles from an hyperstack using the overlapping edges, shifts are also saved in a table
+- Distribute: distribute the tiles spatially and allow to reposition the ROI
+- Update: update the ROI position (x and y) in the result table
+- Align: align the tiles from an hyperstack using the overlapping edges, shifts are saved in a table as columns dx and dy
 - Apply: use the shift from the table to correct shifts for each frame of the hyperstack
-- Merge: merge the frames into a mosaic fusing the overlaping tiles 
+- Merge: merge the frames into a mosaic fusing the overlaping tiles
+
+
