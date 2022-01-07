@@ -3,7 +3,7 @@
 #@Integer(label="Horizontal overlap", value=8) overlap_x
 #@Integer(label="Vertical overlap", value=8) overlap_y
 #@Integer(label="Position noise", value=0) noise
-#@String(label="Action", choices={"Split","Distribute","Update","Align","Apply","Merge"}) mode
+#@String(label="Action", choices={"Split","Distribute","Update","Align","Apply","Correct","Merge"}) mode
 
 /*
  * Split, Align & Merge tiles
@@ -49,6 +49,8 @@ if (nImages==0) {
 		spread_tiles(ncolumns,nrows,overlap_x,overlap_y);
 	} else if (matches(mode,"Update")) {
 		readout(ncolumns,nrows,overlap_x,overlap_y);
+	} else if (matches(mode,"Correct")) {
+		correct_illumination();
 	}	
 	setBatchMode("exit and display");
 }
@@ -590,5 +592,103 @@ function duplicate_side(name,n,side,overlap_x,overlap_y) {
 	run("Duplicate...", "title="+name);
 	run("Unsharp Mask...", "radius=2 mask=0.9");
 	return getImageID();
+}
+
+
+function correct_illumination() {	
+	// correct illumination 
+	setBatchMode(true);
+	run("Duplicate...", "title=y duplicate");
+	run("32-bit");
+	y = getImageID();
+	run("Min...", "value=0.01 stack");
+		
+	selectImage(y);
+	run("Z Project...", "projection=Median");
+	run("32-bit");
+	rename("m");
+	run("Gaussian Blur...", "sigma=10");
+	getStatistics(voxelCount, mean, min, max, stdDev);		
+	run("Macro...", "code=v=0.25+0.75*(v-"+min+")/("+max+"-"+min+") stack");
+	
+	
+	m = getImageID();
+
+	selectImage(m);
+	run("Duplicate...", "title=b");
+	run("32-bit");
+	setColor(0.0);
+	fill();	
+	b = getImageID();	
+
+	imageCalculator("Subtract create 32-bit stack", y, b); rename("x"); x = getImageID(); 
+	imageCalculator("Divide stack", x, m);	
+	run("Min...", "value=0.01 stack");
+	
+	for (iter = 0; iter < 10; iter++) {				
+		imageCalculator("Multiply create 32-bit stack", x, m); rename("tmp"); tmp=getImageID(); // mx
+		imageCalculator("Add stack", tmp, b); // mx+b	
+		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
+		selectImage(tmp);		
+		run("Min...", "value=0.01 stack");
+		run("Reciprocal","stack"); // y / (mx+b)		
+		run("Z Project...", "projection=[Average Intensity]");rename("avg");avg=getImageID();
+		imageCalculator("Multiply", m, avg); // update m = m*y/mx+b		
+		selectImage(tmp); close();
+		selectImage(avg); close();
+		selectImage(m);run("Gaussian Blur...", "sigma=1");
+		run("Min...", "value=0.01 stack");
+		
+		imageCalculator("Multiply create 32-bit stack", x, m); tmp = getImageID(); // mx
+		imageCalculator("Add stack", tmp, b); // mx+b		
+		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
+		selectImage(tmp);
+		run("Min...", "value=0.01 stack");
+		run("Reciprocal","stack"); // y / (mx+b)
+		imageCalculator("Multiply", x, tmp);
+		selectImage(tmp); close();		
+	}	
+	selectImage(x);
+	setBatchMode(false);
+}
+
+function linear_regression_stack() {
+	// linear regression along tiles y = alpha + beta x
+	// beta = (n Sxy - SxSy) / (n Sxx-Sx^2) = (n Sxy/Sx - Sy) / ((n * Sxx-Sx^2)/Sx)
+	// alpha = Sy/n - beta Sx / n = (Sy / Sx - beta) * Sx / n	
+	setBatchMode(false);
+	id0 = getImageID;
+	run("Duplicate...", "duplicate");
+	run("Gaussian Blur...", "sigma=10 stack");
+	y = getImageID();
+	// Compute Sx	
+	Stack.getDimensions(width, height, channels, slices, n);
+	Sx = n * (n + 1) / 2; // thank you euler
+	Sxx = n * (n + 1) * ( 2 * n + 1) / 6;
+	// compute Sy
+	run("Z Project...", "projection=[Sum Slices]");run("32-bit");rename("Sy");sy=getImageID();
+	
+	// compute XY
+	selectImage(y);
+	run("Duplicate...", "title=XY duplicate");selectWindow("XY");run("32-bit");xy=getImageID();	
+	Stack.getDimensions(width, height, channels, slices, n);
+	for(i = 1; i <= n; i++){Stack.setFrame(i); setColor(i);fill();}	
+	imageCalculator("Multiply stack", xy, y);
+	// compute SXY
+	run("Z Project...", "projection=[Sum Slices]");rename("Sxy");sxy=getImageID();
+	// compute beta
+	run("Multiply...", "value="+n/Sx+" stack");	// n Sxy / Sx
+	imageCalculator("Subtract stack", sxy, sy); // n Sxy / Sx - Sy
+	run("Divide...", "value="+(n*Sxx-Sx*Sx)/Sx+" stack");	// n Sxy / Sx
+	rename("beta");
+	// compute alpha
+	selectImage(sy);
+	run("Divide...", "value="+Sx+" stack"); // Sy / Sx
+	imageCalculator("Subtract", sy, sxy); // Sy / Sx - beta
+	run("Multiply...", "value="+Sx/n+" stack"); // (Sy / Sx - beta) * Sx /n
+	rename("alpha");
+
+	selectImage(y);close();
+	selectImage(xy);close();
 }
 
