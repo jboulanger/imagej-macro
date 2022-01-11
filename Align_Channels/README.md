@@ -4,7 +4,10 @@ The macro 'Align_Channel.ijm' estimates the parameters of a 2D deformation model
 
 To download the macro click [here](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/Align_Channels/Align_Channels.ijm)
 
-
+Limitations:
+- The name of the model table has to be 'Models.csv'. Rename it if needed.
+- The macro will work on small images (tested on 1024x1024) and is relatively slow.
+- Some error may occur, try closing the results and models.csv tables.
 
 ## Tutorial
 1. Open an hyperstack image of beads with multiple channels. If the stack is 3D, perform a maximum intensity projection.
@@ -19,7 +22,7 @@ If there are no image opened the macro generates a test image with 2 channels an
 
 ![image](https://user-images.githubusercontent.com/3415561/117965418-a4c7a100-b31a-11eb-9531-cf4c28ec63be.png)
 
-4. Open the image you want to align and the file Models.csv
+4. Open the image you want to align and the file Models.csv. The name of the table with parameters has to be 'Models.csv'
 
 5. Run again the macro to align the image using the parameters previously estimated
 
