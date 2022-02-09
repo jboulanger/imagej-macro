@@ -33,6 +33,13 @@ If there are no image opened the macro generates a test image with 2 channels an
 ![image](https://user-images.githubusercontent.com/3415561/117965614-e5271f00-b31a-11eb-9ad2-09d67b6bdee1.png)
 
 
+# Manually align channels
+Instead of using beads to calibrate the transformation, this macro used ROI from the ROI manager to estimate the shift between images.
 
+## Tutorial
+1. Open an image and select matching ROIs in every channels and add then in the ROI manager (press the key 't'). Try spreading the ROI over the image as much as possible.
+2. Run the macro in the estimate mode. Optionally save the table 'Models.csv'
+3. Run the macro in the apply model with the Models.csv table opened.
+4. Check the result
 
 
