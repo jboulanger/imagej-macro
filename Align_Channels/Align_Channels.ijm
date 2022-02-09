@@ -1,5 +1,6 @@
-#@String(choices={"Estimate [Beads]","Estimate [ROI]","Apply"}) mode
+#@String(choices={"Estimate Beads","Estimate ROI","Apply"}) mode
 #@String(choices={"Affine","Quadratic"}) model
+#@String(label="table name",value="Models.csv") tblname
 
 /*
  * Estimate and apply channel alignement from a bead calibration image
@@ -19,7 +20,7 @@
  *  	2. The macro will work on small images (tested on 1024x1024) and is relatively slow.
  *  	3. Some error may occur, try closing the results and models.csv tables.
  *   
- * Jerome Boulanger 2021 for Sina & Anna
+ * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
 
  
@@ -27,22 +28,29 @@ if (nImages==0) {
 	path = File.openDialog("Open an image");
 	open(path);
 }
-print(mode);
-if (matches(mode, "Estimate [Beads]")) {
-	estimateTransform(model);
-} else if (matches(mode, "Estimate [ROI]")) {
-	estimateTransformROI(model);
-}	else {	
-	applyTransform();
+
+if (matches(mode, "Estimate Beads")) {	
+	print("Estimate transfrom from beads");
+	estimateTransform(model,tblname);
+} else if (matches(mode, "Estimate ROI")) {
+	print("Estimate transfrom from ROIs");
+	estimateTransformROI(model,tblname);
+} else {	
+	print("Apply transform");
+	applyTransform(tblname);
 }
 print("Done");
 
-function applyTransform() {
+function applyTransform(tblname) {	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	for (channel = 2; channel <= channels; channel++) {
 		cname = "M1"+channel;
 		print("Loading parameters from column " + cname);
-		selectWindow("Models.csv");
+		if (isOpen(tblname)) {
+			selectWindow(tblname);
+		} else {
+			exit("Could not find table " + tblname);			
+		}
 		M = Table.getColumn(cname);
 		for (frame = 1; frame <= frames; frame++) {
 			for (slice = 1; slice <= slices; slice++) {
@@ -53,11 +61,11 @@ function applyTransform() {
 	}
 }
 
-function estimateTransform(degree) {
+function estimateTransform(degree,tblname) {
 	// Estimate the alignement for each channel in the image stack
 	setBatchMode(true);
 	id0 = getImageID();
-	Table.create("Models.csv");
+	Table.create(tblname);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
@@ -71,18 +79,18 @@ function estimateTransform(degree) {
 		Stack.setChannel(channel);
 		M = estimateTfm(1,channel,degree);
 		cname = "M1" + channel;
-		print("Saving model as column" + cname);
-		selectWindow("Models.csv");
+		print("Saving model as column " + cname);
+		selectWindow(tblname);
 		Table.setColumn(cname, M);
 		Table.update();
 	}
 }
 
-function estimateTransformROI(degree) {
+function estimateTransformROI(degree,tblname) {
 	// Estimate the alignement for each channel in the image stack
 	setBatchMode(true);
 	id0 = getImageID();
-	Table.create("Models.csv");
+	Table.create(tblname);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
@@ -96,8 +104,8 @@ function estimateTransformROI(degree) {
 		Stack.setChannel(channel);
 		M = estimateTfm(1,channel,degree);
 		cname = "M1" + channel;
-		print("Saving model as column" + cname);
-		selectWindow("Models.csv");
+		print("Saving model as column " + cname);
+		selectWindow(tblname);
 		Table.setColumn(cname, M);
 		Table.update();
 	}
@@ -218,11 +226,9 @@ function getBeadsLocation(channel) {
 	setThreshold(mean+3*std, max);
 	n0 = roiManager("count");
 	run("Analyze Particles...", "size=10-Infinity pixel circularity=0.1-1.00 add");
-	n1 = roiManager("count");
-	print(n0);
+	n1 = roiManager("count");	
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	for (i=n0;i<n1;i++){
-		print(i);
+	for (i=n0;i<n1;i++){		
 		roiManager("select",i);
 		setResult("Channel",i, channel);
 		setResult("X",i,getValue("XM")/pixelWidth);
@@ -278,8 +284,8 @@ function applyTfmToSlice(M) {
 			for (x = 0; x < w; x++) {
 				xi = (x - w/2)/w*2;
 				yi = (y - h/2)/h*2;
-				xt = M[2] + M[3] * x + M[4] * y +  M[5] * x*x + M[6] * x*y + M[7]*y*y;
-				yt = M[8] + M[9] * x + M[10] * y + M[11] * x*x + M[12] * x*y + M[13]*y*y;
+				xt = M[2] + M[3] * xi + M[4] * yi +  M[5] * xi*xi + M[6] * xi*yi + M[7]*yi*yi;
+				yt = M[8] + M[9] * xi + M[10] * yi + M[11] * xi*xi + M[12] * xi*yi + M[13]*yi*yi;
 				xt = xt*w/2 + w/2;
 				yt = yt*h/2 + h/2;
 				if (xt >= 0 && yt >= 0 && xt < w && yt < h) {
@@ -492,8 +498,8 @@ function matmean(A,dim) {
 function solve(A,B) {
 	// Solve A*X=B by iterating X=X-At(AX - B)
 	// A[NxM] x X[MxK] = B [NxK]
-	print(mat2str(A,"A"));
-	print(mat2str(B,"B"));
+	//print(mat2str(A,"A"));
+	//print(mat2str(B,"B"));
 	N = A[0];
 	M = A[1];
 	K = B[1];
