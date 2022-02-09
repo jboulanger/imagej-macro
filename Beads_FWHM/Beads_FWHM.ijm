@@ -1,7 +1,7 @@
-// @Integer(label="Channel", value=1) channel
+// @Integer(label="Channel", value=1, min=1) channel
 // @Double(label="Spot size [px]", value=1, style=slider, min=1, max=4.0) spot_size
 // @Double(label="Probablity of false alarm (log10)", value=1, style=slider, min=1, max=4.0) pfa
-// @Double(label="Wavelength [nm]", value=500, style=slider, min=400, max=1000) wavelength_nm
+// @Double(label="Wavelength [nm]", value=500, style=slider, min=200, max=1000) wavelength_nm
 // @Double(label="Numerical Aperture", value=1.25, min=0, max=1.5) numerical_aperture
 // @Double(label="Bead size [nm]", value=100, style=slider, min=0.0, max=1000) bead_size_nm
 // @String(label="System", value="default") system

@@ -136,7 +136,7 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		all_vals = Array.concat(new_vals, vals);		
 		
 		print("Loading " + filename + " with condition " + condition);
-		if (isAbsolutePath(filename)) {
+		if (!isAbsolutePath(filename)) {
 			run("Bio-Formats Importer", "open=["+path + File.separator + filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
 		} else {
 			run("Bio-Formats Importer", "open=["+filename+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");			
@@ -164,8 +164,10 @@ function isAbsolutePath(p) {
 		}
 	} else {
 		if (charCodeAt(p,0)==47) {
+			print("absolute");
 			return true;
 		} else {
+			print("relative");
 			return false;
 		}
 	}

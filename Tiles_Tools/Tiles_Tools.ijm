@@ -14,17 +14,20 @@
 if (nImages==0) {
 	print("testing mode");
 	run("Close All");
-	run("Blobs (25K)");
-	//run("Boats");
+	//run("Blobs (25K)");
+	run("Boats");
 	run("Grays");
 	setBatchMode(true);
 	print("Splitting the image into overlaping tiles");
 	tiles = split_tiles(ncolumns,nrows,overlap_x,overlap_y,2);
 	setBatchMode(false);
-		
+	//print("Apply illumination artifact");
+	//run("Macro...", "code=v=v*(0.1+0.9*exp(-d*d/(w*w))) stack");
+	//print("Correct illumination");
+	//correct_illumination();
 	print("Distributing tiles");
 	view = spread_tiles(ncolumns,nrows,overlap_x,overlap_y);
-	close();	
+	close();
 	setBatchMode(true);
 	print("Aligning the images tiles");
 	selectImage(tiles);
@@ -328,7 +331,6 @@ function ncropAndEstimateShift(t0,t1,scale) {
 	return shift;
 }
 
-
 function estimateShift(id1,id2,scale) {
 	sx = 0;
 	sy = 0;
@@ -455,6 +457,64 @@ function split_tiles(ncolumns,nrows,overlap_x,overlap_y,noise) {
 	run("Select None");
 	return dst;
 }
+
+
+function correct_illumination() {	
+	// correct illumination 
+	setBatchMode(true);
+	run("Duplicate...", "title=y duplicate");
+	run("32-bit");
+	y = getImageID();
+	run("Min...", "value=0.01 stack");
+		
+	selectImage(y);
+	run("Z Project...", "projection=Median");
+	run("32-bit");
+	rename("m");
+	run("Gaussian Blur...", "sigma=10");
+	getStatistics(voxelCount, mean, min, max, stdDev);		
+	run("Macro...", "code=v=0.1+0.9*(v-"+min+")/("+max+"-"+min+") stack");	
+	m = getImageID();
+	
+	selectImage(m);
+	run("Duplicate...", "title=b");
+	run("32-bit");
+	setColor(0.0);
+	fill();	
+	b = getImageID();	
+
+	imageCalculator("Subtract create 32-bit stack", y, b); rename("x"); x = getImageID(); 
+	imageCalculator("Divide stack", x, m);	
+	run("Min...", "value=0.01 stack");
+	
+	for (iter = 0; iter < 10; iter++) {				
+		imageCalculator("Multiply create 32-bit stack", x, m); rename("tmp"); tmp=getImageID(); // mx
+		imageCalculator("Add stack", tmp, b); // mx+b	
+		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
+		selectImage(tmp);		
+		run("Min...", "value=0.01 stack");
+		run("Reciprocal","stack"); // y / (mx+b)		
+		run("Z Project...", "projection=[Median]");rename("avg");avg=getImageID();
+		imageCalculator("Multiply", m, avg); // update m = m*y/mx+b		
+		selectImage(tmp); close();
+		selectImage(avg); close();
+		selectImage(m);run("Gaussian Blur...", "sigma=10");
+		run("Min...", "value=0.01 stack");
+		
+		imageCalculator("Multiply create 32-bit stack", x, m); tmp = getImageID(); // mx
+		imageCalculator("Add stack", tmp, b); // mx+b		
+		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
+		selectImage(tmp);
+		run("Min...", "value=0.01 stack");
+		run("Reciprocal","stack"); // y / (mx+b)
+		imageCalculator("Multiply", x, tmp);
+		selectImage(tmp); close();		
+	}	
+	selectImage(x);
+	rename("Corrected");
+	setBatchMode(false);
+}
+
 
 //// OLDER CODE
 
@@ -594,63 +654,6 @@ function duplicate_side(name,n,side,overlap_x,overlap_y) {
 	return getImageID();
 }
 
-
-function correct_illumination() {	
-	// correct illumination 
-	setBatchMode(true);
-	run("Duplicate...", "title=y duplicate");
-	run("32-bit");
-	y = getImageID();
-	run("Min...", "value=0.01 stack");
-		
-	selectImage(y);
-	run("Z Project...", "projection=Median");
-	run("32-bit");
-	rename("m");
-	run("Gaussian Blur...", "sigma=10");
-	getStatistics(voxelCount, mean, min, max, stdDev);		
-	run("Macro...", "code=v=0.25+0.75*(v-"+min+")/("+max+"-"+min+") stack");
-	
-	
-	m = getImageID();
-
-	selectImage(m);
-	run("Duplicate...", "title=b");
-	run("32-bit");
-	setColor(0.0);
-	fill();	
-	b = getImageID();	
-
-	imageCalculator("Subtract create 32-bit stack", y, b); rename("x"); x = getImageID(); 
-	imageCalculator("Divide stack", x, m);	
-	run("Min...", "value=0.01 stack");
-	
-	for (iter = 0; iter < 10; iter++) {				
-		imageCalculator("Multiply create 32-bit stack", x, m); rename("tmp"); tmp=getImageID(); // mx
-		imageCalculator("Add stack", tmp, b); // mx+b	
-		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
-		selectImage(tmp);		
-		run("Min...", "value=0.01 stack");
-		run("Reciprocal","stack"); // y / (mx+b)		
-		run("Z Project...", "projection=[Average Intensity]");rename("avg");avg=getImageID();
-		imageCalculator("Multiply", m, avg); // update m = m*y/mx+b		
-		selectImage(tmp); close();
-		selectImage(avg); close();
-		selectImage(m);run("Gaussian Blur...", "sigma=1");
-		run("Min...", "value=0.01 stack");
-		
-		imageCalculator("Multiply create 32-bit stack", x, m); tmp = getImageID(); // mx
-		imageCalculator("Add stack", tmp, b); // mx+b		
-		imageCalculator("Divide stack", tmp, y); // (mx+b) / y
-		selectImage(tmp);
-		run("Min...", "value=0.01 stack");
-		run("Reciprocal","stack"); // y / (mx+b)
-		imageCalculator("Multiply", x, tmp);
-		selectImage(tmp); close();		
-	}	
-	selectImage(x);
-	setBatchMode(false);
-}
 
 function linear_regression_stack() {
 	// linear regression along tiles y = alpha + beta x

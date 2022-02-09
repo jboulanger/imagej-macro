@@ -1,7 +1,7 @@
 #@String(choices={"Estimate","Apply"}, style="radioButtonHorizontal") mode
 
 /*
- * Estimate and apply channel alignement from a bead calibration image
+ * Estimate and apply channel alignement from a set of manually selected matching ROI 
  * 
  * Channels are aligned to the 1st channel
  * 
@@ -18,7 +18,7 @@
  *  	2. The macro will work on small images (tested on 1024x1024) and is relatively slow.
  *  	3. Some error may occur, try closing the results and models.csv tables.
  *   
- * Jerome Boulanger 2021 for Sina & Anna
+ * Jerome Boulanger 2021 for Ross Hill
  */
  
 if (nImages==0) {
@@ -58,10 +58,11 @@ function estimateTransform(degree) {
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
 	}
-	for (channel = 1; channel <= channels; channel++) {
-		selectImage(id0);
-		getBeadsLocation(channel);
-	}
+	getROILocation();
+	//for (channel = 1; channel <= channels; channel++) {
+	//	selectImage(id0);
+	//	getBeadsLocation(channel);
+	//}
 	setBatchMode(false);
 	for (channel = 2; channel <= channels; channel++) {
 		Stack.setChannel(channel);
@@ -174,27 +175,14 @@ function loadCoords(channel, M) {
 	return a;
 }
 
-function getBeadsLocation(channel) {
+function getROILocation() {
 	// Get location of beads in all channels and save the results in a result table
 	run("Select None");
-	run("Duplicate...", "duplicate channels="+channel);
-	run("32-bit");
-	run("Gaussian Blur...", "sigma=1");
-	id1 = getImageID();
-	run("Duplicate...", " ");
-	run("Gaussian Blur...", "sigma=3");
-	id2 = getImageID();
-	imageCalculator("Subtract ", id1, id2);
-	getStatistics(area, mean, min, max, std, histogram);
-	setThreshold(mean+3*std, max);
-	n0 = roiManager("count");
-	run("Analyze Particles...", "size=10-Infinity pixel circularity=0.1-1.00 add");
-	n1 = roiManager("count");
-	print(n0);
+	n = roiManager("count");
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	for (i=n0;i<n1;i++){
-		print(i);
+	for (i = 0;i < n; i++){		
 		roiManager("select",i);
+		Stack.getPosition(channel, slice, frame);
 		setResult("Channel",i, channel);
 		setResult("X",i,getValue("XM")/pixelWidth);
 		setResult("Y",i,getValue("YM")/pixelHeight);
@@ -202,9 +190,7 @@ function getBeadsLocation(channel) {
 		Overlay.show;
 		updateResults();
 	}
-	updateResults();
-	selectImage(id1);close();
-	selectImage(id2);close();
+	updateResults();	
 }
 
 
