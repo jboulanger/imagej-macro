@@ -1,4 +1,5 @@
-#@String(choices={"Estimate","Apply"}, style="radioButtonHorizontal") mode
+#@String(choices={"Estimate [Beads]","Estimate [ROI]","Apply"}) mode
+#@String(choices={"Affine","Quadratic"}) model
 
 /*
  * Estimate and apply channel alignement from a bead calibration image
@@ -20,15 +21,18 @@
  *   
  * Jerome Boulanger 2021 for Sina & Anna
  */
+
  
 if (nImages==0) {
 	path = File.openDialog("Open an image");
 	open(path);
 }
 print(mode);
-if (matches(mode, "Estimate")) {
-	estimateTransform("Affine");
-} else {	
+if (matches(mode, "Estimate [Beads]")) {
+	estimateTransform(model);
+} else if (matches(mode, "Estimate [ROI]")) {
+	estimateTransformROI(model);
+}	else {	
 	applyTransform();
 }
 print("Done");
@@ -61,6 +65,31 @@ function estimateTransform(degree) {
 	for (channel = 1; channel <= channels; channel++) {
 		selectImage(id0);
 		getBeadsLocation(channel);
+	}
+	setBatchMode(false);
+	for (channel = 2; channel <= channels; channel++) {
+		Stack.setChannel(channel);
+		M = estimateTfm(1,channel,degree);
+		cname = "M1" + channel;
+		print("Saving model as column" + cname);
+		selectWindow("Models.csv");
+		Table.setColumn(cname, M);
+		Table.update();
+	}
+}
+
+function estimateTransformROI(degree) {
+	// Estimate the alignement for each channel in the image stack
+	setBatchMode(true);
+	id0 = getImageID();
+	Table.create("Models.csv");
+	Stack.getDimensions(width, height, channels, slices, frames);
+	if (slices > 1) {
+		run("Z Project...", "projection=[Max Intensity]");
+	}
+	getROILocation();
+	if (roiManager("count") < 5) {
+		exit("Please add more ROIs");
 	}
 	setBatchMode(false);
 	for (channel = 2; channel <= channels; channel++) {
@@ -205,6 +234,24 @@ function getBeadsLocation(channel) {
 	updateResults();
 	selectImage(id1);close();
 	selectImage(id2);close();
+}
+
+function getROILocation() {
+	// Get location of rois in all channels and save the results in a result table
+	run("Select None");
+	n = roiManager("count");
+	getPixelSize(unit, pixelWidth, pixelHeight);
+	for (i = 0;i < n; i++){		
+		roiManager("select",i);
+		Stack.getPosition(channel, slice, frame);
+		setResult("Channel",i, channel);
+		setResult("X",i,getValue("XM")/pixelWidth);
+		setResult("Y",i,getValue("YM")/pixelHeight);
+		Overlay.addSelection();
+		Overlay.show;
+		updateResults();
+	}
+	updateResults();	
 }
 
 
