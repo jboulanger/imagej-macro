@@ -4,7 +4,10 @@ The macro 'Align_Channel.ijm' estimates the parameters of a 2D deformation model
 
 To download the macro click [here](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/Align_Channels/Align_Channels.ijm)
 
-
+Limitations:
+- The name of the model table has to be 'Models.csv'. Rename it if needed.
+- The macro will work on small images (tested on 1024x1024) and is relatively slow.
+- Some error may occur, try closing the results and models.csv tables.
 
 ## Tutorial
 1. Open an hyperstack image of beads with multiple channels. If the stack is 3D, perform a maximum intensity projection.
@@ -19,7 +22,7 @@ If there are no image opened the macro generates a test image with 2 channels an
 
 ![image](https://user-images.githubusercontent.com/3415561/117965418-a4c7a100-b31a-11eb-9531-cf4c28ec63be.png)
 
-4. Open the image you want to align and the file Models.csv
+4. Open the image you want to align and the file Models.csv. The name of the table with parameters has to be 'Models.csv'
 
 5. Run again the macro to align the image using the parameters previously estimated
 
@@ -30,6 +33,13 @@ If there are no image opened the macro generates a test image with 2 channels an
 ![image](https://user-images.githubusercontent.com/3415561/117965614-e5271f00-b31a-11eb-9ad2-09d67b6bdee1.png)
 
 
+# Manually align channels
+Instead of using beads to calibrate the transformation, this macro used ROI from the ROI manager to estimate the shift between images.
 
+## Tutorial
+1. Open an image and select matching ROIs in every channels and add then in the ROI manager (press the key 't'). Try spreading the ROI over the image as much as possible.
+2. Run the macro in the estimate mode. Optionally save the table 'Models.csv'
+3. Run the macro in the apply model with the Models.csv table opened.
+4. Check the result
 
 

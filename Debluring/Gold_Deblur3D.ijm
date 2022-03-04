@@ -21,17 +21,19 @@ macro "Gold_Deblur3D" {
 	Dialog.addNumber("Lateral blur (nm):", 100);
 	Dialog.addNumber("Axial blur (nm):", 3000);
 	Dialog.addNumber("Zoom :", 1);
-	Dialog.addNumber("Number of iterations:", 3);	
+	Dialog.addNumber("Number of iterations:", 3);
+	Dialog.addNumber("Background:", 100);
 	Dialog.show();
 	lateral = Dialog.getNumber();
 	axial = Dialog.getNumber();
 	zoom = Dialog.getNumber();
 	number_of_iterations = Dialog.getNumber();
-	gold_deblur(lateral / ps, lateral / ps, axial / pd, zoom, number_of_iterations);
+	background = Dialog.getNumber();
+	gold_deblur(lateral / ps, lateral / ps, axial / pd, zoom, number_of_iterations, background);
 }
 
 
-function gold_deblur(sx, sy, sz, zoom, iter) {		
+function gold_deblur(sx, sy, sz, zoom, iter, background) {		
 	/* 
 	 * 3D debluring using a Gold Meinel algorithm. 
 	 * 
@@ -44,8 +46,8 @@ function gold_deblur(sx, sy, sz, zoom, iter) {
 	run("Duplicate...", "duplicate");
 	run("32-bit");
 	// and substract its minimum - offset to avoid dividing by 0
-	getRawStatistics(nPixels, mean, min);
-	run("Subtract...", "value=" + (min - 1)+ " stack");	
+	//getRawStatistics(nPixels, mean, min);
+	run("Subtract...", "value=" + background + " stack");	
 	data = getImageID();	
 	// Duplicate the data image to create the initialization
 	run("Duplicate...", "duplicate");	
@@ -81,7 +83,7 @@ function gold_deblur(sx, sy, sz, zoom, iter) {
 		Stack.setSlice(round(zoom*depth/2));		
 		run("Enhance Contrast", "saturated=0.05");
 	}	
-	Stack.setDisplayMode("composite");
+	//Stack.setDisplayMode("composite");
 	setBatchMode(false);
 	return img1;
 }

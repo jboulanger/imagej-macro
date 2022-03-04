@@ -8,7 +8,8 @@
 #@String(label="Channel names", description="comma separated list of value of channel name", value="A,B,C") channel_name_str
 #@String(label="Channels", description="comma separated list of value of channel", value="1,2") channel_str
 #@Boolean(label="Colocalize on original?", description="use the original image of the preprocessed image", value=true) onoriginal
-	
+#@String  (label="Table name", value="colocalization.csv") tblname	
+
 /*
  * Colocalization analysis for segmented structures
  * 
@@ -76,6 +77,7 @@ if (nImages==0) {
 	closeThis("ROI Manager");
 	generate_test_image();
 	channel_str = "1,2";
+	specificity = 3;
 }
 
 if (roiManager("count")==0) {
@@ -89,7 +91,6 @@ if (roiManager("count")==0) {
 imagename = getTitle();
 
 setBatchMode("hide");
-tblname = "coloc.csv";
 channels = parseCSVnumbers(channel_str);
 if (!checkChannels(channels)) {exit;}
 channel_names = getChannelNames(channel_name_str);
@@ -101,7 +102,7 @@ print("Number of Parent ROI: " + parents.length);
 thresholds = getChannelThresholds(img2, channels, -specificity);
 children = getAllchildrenROI(img2, parents, channels, thresholds, areafilter, circfilter, colors);
 print("Number of Children ROI: " + children.length);
-if (children.length > 1000) {print("Too many roi created");exit;}
+if (children.length > 2000) {print("Too many roi created");exit;}
 children_channel = getROIChannels(children);
 measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, onoriginal, channel_names);
 selectImage(img2); close();
@@ -176,7 +177,7 @@ function generate_test_image() {
 	h = 200; // height of the image
 	d = 5; // size of the spots
 	N = 10; // number of of roi
-	n = 30; // number of spots / roi	
+	n = 40; // number of spots / roi	
 	newImage("HyperStack", "32-bit composite-mode", w, h, 2, 1, 1);
 	//rho = newArray(0,0.125,0.25,0.5,0.75,1); // amount of colocalization for each ROI
 	rho = Array.getSequence(N);
@@ -546,8 +547,7 @@ function objectColoc(ch1, ch2, rois, roi_channels, union_mask) {
 function measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, on_original, channel_names) {
 	/* Measure the colocalization and report by parents
 	 * 
-	 */
-	tblname = "Colocalization.csv";
+	 */	
 	if (!isOpen(tblname)) {
 		Table.create(tblname);
 	}
@@ -556,11 +556,11 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 		print("Children ("+children.length+") and children_channel ("+children_channel.length+") have different size in measureColocalization");
 		
 	}	
-	
+	getPixelSize(unit, pixelWidth, pixelHeight);
 	for (parent_id = 0; parent_id < parents.length; parent_id++) {
 		
 		roiManager("select", parents[parent_id]);
-		roi_area = getValue("Area");
+		roi_area = getValue("Area") / (pixelWidth * pixelHeight);
 		
 		for (ch1_id = 0; ch1_id < channels.length; ch1_id++) {
 			
@@ -601,7 +601,7 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					if (on_original) {
 						pcc = pearson(x1, x2);
 						rs  = spearman(x1, x2);
-						M   = manders(x1, x2,y1, y2, thresholds[ch1_id], thresholds[ch2_id]);
+						M   = manders(x1, x2, y1, y2, thresholds[ch1_id], thresholds[ch2_id]);
 					} else {
 						pcc = pearson(y1, y2);
 						rs  = spearman(y1, y2);
@@ -649,7 +649,7 @@ function measureColocalization(tblname, img1, img2, channels, thresholds, parent
 					Table.set("Stddev Ch2", row, pcc[4]);
 					Table.set("Max Ch2", row, m2);		
 				}	else {
-					print("empty set");
+					print("empty subset for ch " + ch1 +" and " + ch2);
 				}	
 			}
 		}
@@ -668,11 +668,16 @@ function addOverlays(rois, roi_channels, colors) {
 }
 
 function removeROI(rois) {
+	print("Remove all ROI from selection " + roiManager("count"));
 	a = Array.copy(rois);
 	Array.sort(a);
 	for (i = a.length-1; i >= 0; i--) {
-		roiManager("select", a[i]);
-		roiManager("delete");
+		if (a[i]<roiManager("count")) {			
+			roiManager("select", a[i]);
+			roiManager("delete");
+		} else {
+			print("Trying to delete roi " + a[i] + "/"+roiManager("count"));
+		}
 	}
 }
 

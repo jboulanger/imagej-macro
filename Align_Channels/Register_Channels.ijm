@@ -1,3 +1,7 @@
+#@String(label="mode",choices={"Estimate","Correct"}) mode
+/* Register channels using Motion estimation
+ * 
+ */
 
 if (nImages==0) {
 	print("\\Clear");
@@ -10,16 +14,39 @@ if (nImages==0) {
 	run("Translate...", "x="+5+" y="+10+" interpolation=Bicubic slice");
 	run("Add Slice");
 	run("Paste");
-	run("Translate...", "x="+-5+" y="+-7+" interpolation=Bicubic slice");
+	run("Translate...", "x="+-3+" y="+-7+" interpolation=Bicubic slice");
 	run("Stack to Hyperstack...", "order=xyczt(default) channels=3 slices=1 frames=1 display=Composite");
-	run("Add Noise");
+	run("Add Noise");	
 }	
 
 start = getTime();
 setBatchMode(true);
-align_channel();
+if (matches(mode, "Estimate")) {	
+	align_channel();
+} else {
+	correct();
+}
 setBatchMode(false);
 print("Elapsed time "+ (getTime()-start)/1000 + "s");
+
+
+function correct() {
+	// Correct the channel drift from the stack using the value in the table
+	Stack.getDimensions(width, height, channels, slices, frames);
+	for (channel = 2; channel <= channels; channel++){
+		showProgress(channel,channels);
+		vx = getResult("X", channel - 1);
+		vy = getResult("Y", channel - 1);			
+		if (vx*vx+vy*vy>0.0001) {
+			for (slice = 1; slice <= slices; slice++) {
+				for (frame = 1; frame <= frames; frame++) {					
+					Stack.setPosition(channel, slice, frame);
+					run("Translate...", "x="+-vx+" y="+-vy+" interpolation=Bicubic slice");
+				}
+			}
+		}
+	}
+}
 
 function align_channel() {
 	id = getImageID();
