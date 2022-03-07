@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@String  (label="Mask channel", value=2) mask_channel
+#@Integer (label="Mask channel", value=2) mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
@@ -150,7 +150,9 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		selectWindow(tbl2);
 		Table.save(path + File.separator + replace(File.getName(tablename),".csv", "-obj.csv" ));		
 		selectWindow("Log");
-		saveAs("Text", path + File.separator + replace(File.getName(tablename),".csv", "-log.txt" ));		
+		saveAs("Text", path + File.separator + replace(File.getName(tablename),".csv", "-log.txt" ));
+		run("Close All");
+		run("Collect Garbage");
 	}	
 }
 
@@ -244,6 +246,8 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (channel_names.length != channels) {
+		print("number of channels " + channels);
+		Array.print(channel_names);
 		exit("*** Error not enough channel names !***");
 		return 1;
 	}
@@ -449,6 +453,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 	selectImage(id);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	getPixelSize(unit, pixelWidth, pixelHeight);
+	print("Pixel szie " + pixelWidth +"x"+pixelHeight +" "+ unit);
 	run("Subtract Background...", "rolling=10");
 	// initialize accumulators
 	swx = newArray(rois.length);
@@ -572,6 +577,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 				setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
 				run("Create Selection");
 				Table.set("ROI Area", n, getValue("Area"));
+				Table.set("ROI Area["+unit+"^2]", n, getValue("Area") * pixelWidth * pixelHeight);
 				for (c = 1; c <= channels; c++) {
 					selectImage(id);				
 					Stack.setChannel(c);
