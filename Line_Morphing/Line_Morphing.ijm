@@ -43,6 +43,8 @@ for (z = z0; z <= z1; z++) {
 	}
 	roiManager("select",0);
 	Roi.setPolylineSplineAnchors(x, y);
+	Stack.setSlice(z);
+	roiManager("add");
 	wait(100);
 }
 
