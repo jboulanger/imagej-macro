@@ -23,7 +23,6 @@
  * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
 
- 
 if (nImages==0) {
 	path = File.openDialog("Open an image");
 	open(path);
@@ -121,7 +120,7 @@ function estimateTfm(c1,c2,degree) {
 	} else {
 		X = loadCoords(c1,6);
 	}
-	print(mat2str(X, "channel 1: X"));
+	//print(mat2str(X, "channel 1: X"));
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c1); exit();
 	}
@@ -130,11 +129,11 @@ function estimateTfm(c1,c2,degree) {
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c2); exit();
 	}
-	print(mat2str(Y, "channel 2: Y"));
+	//print(mat2str(Y, "channel 2: Y"));
 
 	M = icp(X,Y);
 
-	print(mat2str(M, "transform"));
+	//print(mat2str(M, "transform"));
 	return M;
 }
 

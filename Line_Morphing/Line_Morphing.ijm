@@ -1,51 +1,120 @@
 /*
  * Line Moprhing
  * 
+ * [Work in progress]
+ * 
  * Morph 2 multi line ROI at different z position 
  * 
  * Usage: 
  * - Add 2 ROI to the ROI manager
  * - Press Run
+ * 
+ * Jerome for Dina 2022
  */
-id = getImageID();
+run("Close All");
 print("\\Clear");
+
+if (nImages==0) {
+	createTest();
+}
+Overlay.remove();
+id = getImageID();
+getDimensions(width, height, channels, slices, frames);
 // get the coordinates of the two lines
 p0 = getROICoordinates(0);
 Roi.getPosition(channel, z0, frame);
 p1 = getROICoordinates(1);
 Roi.getPosition(channel, z1, frame);
+//print(z1);
 //print(mat2str(p0,"p0"));
+//print(mat2str(p1,"p1"));
 
 // compute paiwie distances
 D = pairwiseDistance(p0,p1);
-print(mat2str(D,"D"));
+//print(mat2str(D,"D"));
 //mat2img(D,"D");
 
 // find the mapping
 P = sinkhorn_uniform(D,10);
-//mat2img(P,"P");
+mat2img(P,"P");
 
 // displacement interpolation from one line into the other
 selectImage(id);
 n = matcol(p0);
 m = matcol(p1);
+pmax = matmax(P,-1);
 for (z = z0; z <= z1; z++) {
-	t = (z-z0) / (z1-z0);
-	x = newArray(n);
-	y = newArray(n);
+	t = (z-z0) / (z1-z0);	
+	x = newArray(1000);
+	y = newArray(1000);
+	k = 0;
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {
-			if (matget(P,i,j) > 1e-3) {
-				x[i] = (1-t) * matget(p0,0,i) + t * matget(p1,0,i);
-				y[i] = (1-t) * matget(p0,1,i) + t * matget(p1,1,i);		
+			w = matget(P,i,j);
+			if (w > 0.1 * pmax) {
+				x[k] = (1-t) * matget(p0,0,i) + t * matget(p1,0,j);
+				y[k] = (1-t) * matget(p0,1,i) + t * matget(p1,1,j);				
+				k = k + 1;
 			}
 		}
 	}
-	roiManager("select",0);
-	Roi.setPolylineSplineAnchors(x, y);
+	x = Array.trim(x, k);
+	y = Array.trim(y, k);
+	//Array.print(x);
+	//Array.print(y);
+	Stack.setSlice(z);
+	makeLine(0,0,width/2,height/2,width,height);
+	Roi.setPolylineSplineAnchors(x, y);			
+	roiManager("add");
+	Overlay.addSelection("red");;	
+	Overlay.setPosition(1, z, 1);
+	Overlay.add;
 	wait(100);
+	roiManager("select", roiManager("count")-1);
+	roiManager("delete");
 }
+run("Select None");
 
+
+function createTest() {
+	print("Generating a test image");
+	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
+	width = 200;
+	height = 200;
+	depth = 10;
+	newImage("Test Image", "8-bit black", width, height, 1, depth, 1);	
+	n = 5;
+	m = 6;
+	b = 10;
+	s = 10;
+	x = newArray(n);
+	y = newArray(n);
+	x[0] = width/4;
+	y[0] = height/4;
+	for (i = 1; i < n; i++) {
+		x[i] = maxOf(b,minOf(width-b,  x[i-1] + 0.5*width/(n-1)));
+		y[i] = maxOf(b,minOf(height-b, y[i-1] + 0.5*height/(n-1)));
+	}	
+	for (z = 1; z <= depth; z++) {
+		Stack.setSlice(z);				
+		for (i = 0; i < n; i++) {					
+			x[i] = maxOf(b,minOf(width-b, x[i] + b * (random-0.5)));
+			y[i] = maxOf(b,minOf(height-b,y[i] + b * (random-0.5)));
+		}		
+		makeLine(0, 0, width, height);
+		Roi.setPosition(1, z, 1);
+		Roi.setPolylineSplineAnchors(x, y);		
+		
+		if (z==1 || z==depth) {	
+			run("Interpolate", "interval=5 smooth");
+			Roi.setPosition(1, z, 1);			
+			roiManager("add");	
+		}
+		run("Line to Area");
+		setColor(255);		
+		fill();
+	}
+}
 
 function sinkhorn_uniform(C,gamma) {
 	// Optimal transport using uniform weights
@@ -58,14 +127,17 @@ function sinkhorn_uniform(C,gamma) {
 }
 
 function sinkhorn(C,p,q,gamma) {
-	// Optimal transport 
-	// N = [300,200]
-	// gamma = 0.01
-	// xi = exp(-C/gamma)
-	// b = ones(N(2),1)
-	// a = p ./ (xi*b)
-	// b = q ./ (x'*a)
-	// final is diag(a)*xi*diag(b)
+	/* Optimal transport 
+	 *  Parameters
+	 * X: cost [n,m] matrix (distance)
+	 * p : mass [m,1] vector (probability)
+	 * q : mass [m,1] vector (probability)
+	 * gamma : entropic regularization parameter
+	 * Note
+	 * - p and q will be normalized by their sum and reshaped as column vector
+	 * - if gamma < 0, gamma is set to 10/min(C) 
+	 * 
+	 */
 	n = matrow(C);
 	m = matcol(C);
 	assert((matsize(p) == n), "Size of C ["+n+"x"+m+"] and p ["+matsize(p)+"] do not match");
@@ -75,11 +147,13 @@ function sinkhorn(C,p,q,gamma) {
 	// normalize p and q
 	p = mat_normalize_sum(p);
 	q = mat_normalize_sum(q);
+	
 	// compute a default gamma value from C
 	if (gamma < 0) {
-		minC = C[2];
-		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}
-		gamma = minC / 100.0;
+		minc = C[2];
+		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
+		gamma = 10/minc;
+		print("min c: "+minc+" gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
 	xi = matzeros(n,m);	
@@ -90,18 +164,23 @@ function sinkhorn(C,p,q,gamma) {
 			matset(xi,i,j,val);
 		}
 	}
+	// iterativerly evaluate
+	// a = p ./ (xi*b)
+	// b = q ./ (x'*a)
 	xit = mattranspose(xi);
 	b = matones(m,1);
-	for (iter = 0; iter < 10; iter++) {
+	for (iter = 0; iter < 30; iter++) {
 		xib = matmul(xi,b);
 		a = mat_div(p,xib);
 		xita = matmul(xit,a);
 		b = mat_div(q,xita);
 	}
+	// P = diag(a)*xi*diag(b)
 	a = matdiag(a);
 	b = matdiag(b);
 	P = matmul(xi, b);
 	P = matmul(a, P);
+	
 	return P;
 }
 
@@ -132,9 +211,6 @@ function pairwiseDistance(p,q) {
 	// return distance [n x m] matrix
 	n = matcol(p);
 	m = matcol(q);
-	print("n="+n);
-	print("m="+m);
-	
 	D = matrow(p);
 	a = matzeros(n,m);
 	for (i = 0; i < n; i++) {
@@ -373,7 +449,7 @@ function mat_div(A,B) {
 
 
 function matsum(A,dim) {
-	// sum values of A algon 1 dimension (0 or 1)
+	// sum values of A algon 1 dimension (0 or 1), if dim==-1, sum over all values
 	N = A[0];
 	M = A[1];
 	if(dim==0) {
@@ -383,11 +459,18 @@ function matsum(A,dim) {
 				S[2+m] = S[2+m] + A[2+m+n*M];
 			}
 		}
-	} else {
+	} else if (dim==1){
 		S = matzeros(N,1);
 		for (n = 0; n < N; n++) {
 			for (m = 0; m < M; m++) {
 				S[2+n] = S[2+n] + A[2+m+n*M];
+			}
+		}
+	} else {
+		S = 0;
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S = S + A[2+m+n*M];	
 			}
 		}
 	}
@@ -395,12 +478,45 @@ function matsum(A,dim) {
 }
 
 function matmean(A,dim) {
-	// average along one dimension
+	// average along dimension if dim==0 or 1
 	B = matsum(A,dim);
-	for (i = 2; i < B.length; i++) {
-		B[i] = B[i] / A[dim];
+	if (dim == 0 || dim==1) {
+		for (i = 2; i < B.length; i++) {
+			B[i] = B[i] / A[dim];
+		}
+	} else {
+		B = B / (A[0]*A[1]);
 	}
 	return B;
+}
+
+function matmax(A,dim) {
+	// average along one dimension
+	N = A[0];
+	M = A[1];
+	if(dim==0) {
+		S = matzeros(1,M);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+m] = maxOf(S[2+m],A[2+m+n*M]);
+			}
+		}
+	} else if (dim==1){
+		S = matzeros(N,1);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+n] = maxOf(S[2+n],A[2+m+n*M]);
+			}
+		}
+	} else {
+		S = A[2];
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S = maxOf(S,A[2+m+n*M]);	
+			}
+		}
+	}
+	return S;
 }
 
 function solve(A,B) {
