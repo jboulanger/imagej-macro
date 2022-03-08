@@ -654,3 +654,30 @@ function matnorm(A) {
 	return sqrt(n);
 }
 
+
+function testmat() {
+	// a serie of test for matrices
+	A = matnew(2,2,newArray(1,0,0,1));
+	B = matnew(2,2,newArray(2,1,0,1));
+	print(mat2str(A,"A"));
+	print(mat2str(B,"B"));
+	C = matadd(A,B,1);
+	print(mat2str(C,"A + B"));
+	C = matmul(A,B);
+	print(mat2str(C,"A x B"));
+	C = mattranspose(B);
+	print(mat2str(C,"Bt"));
+	C = solve(A,B);
+	print(mat2str(C,"A\\B"));
+	C = matrep(A,2,3);
+	print(mat2str(C,"repmat(A,2,3)"));
+	C = matsum(A,0);
+	print(mat2str(C,"matsum(A,0)"));
+	C = matmean(A,0);
+	print(mat2str(C,"matmean(A,0)"));
+}
+
+/// END Of Basic Linear Algebra routines
+
+
+

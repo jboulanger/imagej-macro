@@ -1,4 +1,4 @@
-#@String(choices={"Estimate Beads","Estimate ROI","Apply"}) mode
+#@String(choices={"Estimate Beads","Estimate ROI","Apply","Show beads"}) mode
 #@String(choices={"Affine","Quadratic"}) model
 #@String(label="table name",value="Models.csv") tblname
 
@@ -34,11 +34,27 @@ if (matches(mode, "Estimate Beads")) {
 } else if (matches(mode, "Estimate ROI")) {
 	print("Estimate transfrom from ROIs");
 	estimateTransformROI(model,tblname);
+} else if (matches(mode,"Show beads")) {
+	showBeads();
 } else {	
 	print("Apply transform");
 	applyTransform(tblname);
 }
 print("Done");
+
+function showBeads(){
+	// load coordinates from the result table and add them to the ROI manager
+	n = nResults;
+	for (i = 0; i < n; i++) {
+		x = getResult("X", i);
+		y = getResult("Y", i);
+		c = getResult("Channel", i);		
+		makePoint(x, y);
+		Roi.setPosition(c, 1, 1);
+		roiManager("add");
+	}
+	roiManager("show all without labels");
+}
 
 function applyTransform(tblname) {	
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -69,6 +85,7 @@ function estimateTransform(degree,tblname) {
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
 	}
+	run("Set Measurements...", "  redirect=None decimal=3");
 	for (channel = 1; channel <= channels; channel++) {
 		selectImage(id0);
 		getBeadsLocation(channel);
@@ -142,7 +159,7 @@ function icp(X,Y) {
 	//M = solve(X,Y);
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
-	matset(M,2,1,1);
+	matset(M,2,1,1);	
 	for (iter = 0; iter < 10; iter++) {
 		MX = matmul(X,M);
 		Yi = nnmatch(MX,Y);
@@ -174,6 +191,139 @@ function nnmatch(X,Y) {
 	}
 	return Yi;
 }
+
+function smatch(X,Y) {
+	// for each row of Y[Nx2] find the closest row in X[Nx2]
+	// use the sinkhorn algorithm to find the best match
+	p = mattranspose(X);
+	q = mattranspose(Y);
+	C = pairwiseDistance(p,q);
+	P = sinkhorn_uniform(C,-1);
+	mat2img(P,"P");
+	Yi = matzeros(X[0],Y[1]);
+	for (i = 0; i < X[0]; i++) {
+		maxi = -1;
+		jstar = 0;
+		for (j = 0; j < Y[0]; j++) {
+			pij = matget(P,i,j);
+			if (pij > maxi) {
+				maxi = pij;
+				jstar = j;
+			}
+		}
+		// copy x and y values in Yi corresponing to the 
+		// closest match to Xi
+		Yi[2+0+i*2] = Y[2+0+jstar*2];
+		Yi[2+1+i*2] = Y[2+1+jstar*2];
+	}
+	return Yi;
+}
+
+
+function sinkhorn_uniform(C,gamma) {
+	// Optimal transport using uniform weights
+	n = matrow(C);
+	m = matcol(C);
+	p = matones(n,1);
+	q = matones(m,1);
+	P = sinkhorn(C,p,q,gamma);
+	return P;
+}
+
+function sinkhorn(C,p,q,gamma) {
+	/* Optimal transport 
+	 *  Parameters
+	 * X: cost [n,m] matrix (distance)
+	 * p : mass [m,1] vector (probability)
+	 * q : mass [m,1] vector (probability)
+	 * gamma : entropic regularization parameter
+	 * Note
+	 * - p and q will be normalized by their sum and reshaped as column vector
+	 * - if gamma < 0, gamma is set to 10/min(C) 
+	 * 
+	 */
+	n = matrow(C);
+	m = matcol(C);
+	assert((matsize(p) == n), "Size of C ["+n+"x"+m+"] and p ["+matsize(p)+"] do not match");
+	assert((matsize(q) == m), "Size of C ["+n+"x"+m+"] and p ["+matsize(q)+"] do not match");
+	p = matreshape(p,n,1);
+	q = matreshape(q,m,1);
+	// normalize p and q
+	p = mat_normalize_sum(p);
+	q = mat_normalize_sum(q);
+	
+	// compute a default gamma value from C
+	if (gamma < 0) {
+		minc = C[2];
+		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
+		gamma = 10*minc;
+		//print("min c: "+minc+" gamma = "+gamma);
+	}
+	// compute xi = exp(-C/gamma)
+	xi = matzeros(n,m);	
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {
+			cij = matget(C,i,j);
+			val = exp(-cij/gamma);
+			matset(xi,i,j,val);
+		}
+	}
+	// iterativerly evaluate
+	// a = p ./ (xi*b)
+	// b = q ./ (x'*a)
+	xit = mattranspose(xi);
+	b = matones(m,1);
+	for (iter = 0; iter < 30; iter++) {
+		xib = matmul(xi,b);
+		a = mat_div(p,xib);
+		xita = matmul(xit,a);
+		b = mat_div(q,xita);
+	}
+	// P = diag(a)*xi*diag(b)
+	a = matdiag(a);
+	b = matdiag(b);
+	P = matmul(xi, b);
+	P = matmul(a, P);
+	
+	return P;
+}
+
+
+function pairwiseDistance(p,q) {
+	// Compute the pairwie distance between p and q
+	// P : 2xn coordinate matrix
+	// Q : 2xm coordinate matrix
+	// return distance [n x m] matrix
+	n = matcol(p);
+	m = matcol(q);
+	D = matrow(p);
+	a = matzeros(n,m);
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {
+			s = 0;
+			for (k = 0; k < D; k++) {
+				d = matget(p,k,i) - matget(q,k,j);
+				s += d*d;
+			}
+			matset(a,i,j,s);
+		}
+	}
+	return a;
+}
+
+function mat_normalize_sum(A) {
+	// normalize A by the sum over all indices
+	B = A;
+	s = 0;
+	for (i = 2; i < A.length; i++) {
+		 s += A[i];
+	}
+	for (i = 2; i < A.length; i++) {
+		 B[i] = A[i] / s;
+	}
+	return B;
+}
+
 
 function loadCoords(channel, M) {
 	// return a NxM matrix loading coordinates from the result table
@@ -212,33 +362,71 @@ function loadCoords(channel, M) {
 
 function getBeadsLocation(channel) {
 	// Get location of beads in all channels and save the results in a result table
+	colors=newArray("red","green","blue","white");
+	id = getImageID();
 	run("Select None");
 	run("Duplicate...", "duplicate channels="+channel);
 	run("32-bit");
 	run("Gaussian Blur...", "sigma=1");
 	id1 = getImageID();
 	run("Duplicate...", " ");
-	run("Gaussian Blur...", "sigma=3");
+	run("Gaussian Blur...", "sigma=2");
 	id2 = getImageID();
 	imageCalculator("Subtract ", id1, id2);
 	getStatistics(area, mean, min, max, std, histogram);
-	setThreshold(mean+3*std, max);
+	setThreshold(mean+2*std, max);
 	n0 = roiManager("count");
-	run("Analyze Particles...", "size=10-Infinity pixel circularity=0.1-1.00 add");
+	run("Analyze Particles...", "size=5-Infinity pixel circularity=0.1-1.00 add");
 	n1 = roiManager("count");	
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	for (i=n0;i<n1;i++){		
+	selectImage(id);
+	for (i = n0; i < n1; i++){		
 		roiManager("select",i);
 		setResult("Channel",i, channel);
-		setResult("X",i,getValue("XM")/pixelWidth);
-		setResult("Y",i,getValue("YM")/pixelHeight);
-		Overlay.addSelection();
+		xm = getValue("XM")/pixelWidth;
+		ym = getValue("YM")/pixelWidth;
+		Stack.setChannel(channel);
+		pos = fitBeadXY(xm,ym,2);		
+		if (!(isNaN(pos[0]) || isNaN(pos[0]))) {
+			xm = pos[0];
+			ym = pos[1];
+		}
+		setResult("X",i,xm);
+		setResult("Y",i,ym);		
+		Overlay.addSelection(colors[(channel-1)%colors.length]);
 		Overlay.show;
 		updateResults();
 	}
 	updateResults();
 	selectImage(id1);close();
 	selectImage(id2);close();
+}
+
+function fitBeadXY(x0,y0,s) {
+	bg = 1e9;
+	for (dy = -s; dy <= s; dy+=0.5) {
+		for (dx = -s; dx <= s; dx+=0.5) {
+			bg = minOf(bg, getPixel(x0+dx, y0+dy));
+		}
+	}
+	for (i = 0; i < 10; i++) {			
+		sv = 0;
+		x1 = 0;
+		y1 = 0;
+		for (dy = -s; dy <= s; dy+=0.5) {
+			for (dx = -s; dx <= s; dx+=0.5) {
+				d = (dx*dx+dy*dy)/(9*s*s);			
+				v = maxOf(0, getPixel(x0+dx, y0+dy)-bg) * exp(-0.5*d);				
+				x1 += (x0+dx) * v;
+				y1 += (y0+dy) * v;
+				sv += v;
+			}
+		}		
+		x0 = x1/sv;
+		y0 = y1/sv;
+		wait(1);		
+	}	
+	return newArray(x0,y0);
 }
 
 function getROILocation() {
@@ -330,9 +518,17 @@ function image2Array(w,h) {
 }
 
 
+
 /////////////////////////////////////////////////////////
 // Basic Linear Algebra
 ////////////////////////////////////////////////////////
+function assert(cond, msg) {
+	// check that condition is true
+	if (!(cond)) {
+		exit(msg);
+	}
+}
+
 function matnew(n,m,vals) {
 	// Initialize a matrix with values
 	// Column major, N rows and M columns
@@ -356,11 +552,43 @@ function matcol(A) {
 	return A[1];
 }
 
+function matsize(A) {
+	// return the number of elements of A
+	return A.length - 2;
+}
+
 function matzeros(n,m) {
 	// Return an NxM matrix initialized with zeros
 	A = newArray(2+n*m);
 	A[0] = n;
 	A[1] = m;
+	return A;
+}
+
+function matones(n,m) {
+	// Return an NxM matrix initialized with zeros
+	A = matzeros(n,m);
+	for (i = 2 ; i < A.length; i++) {
+		A[i] = 1;
+	}
+	return A;
+}
+
+function matreshape(A,n,m) {
+	// Reshape the matrix
+	B = A;
+	B[0] = n;
+	B[1] = m;
+	return B;
+}
+
+function matdiag(v) {
+	// create a diagonal matrix with the values of the vector v
+	n = v.length - 2;
+	A  = matzeros(n,n);
+	for (i = 0 ; i < n; i++) {
+		matset(A,i,i,matget(v,i,0));
+	}
 	return A;
 }
 
@@ -390,7 +618,7 @@ function mattranspose(A) {
 	N = matrow(A);
 	B = matzeros(M,N);
 	for (n=0;n<N;n++) {
-		for (m=0;m<M;m++) {
+		for (m = 0; m < M; m++) {
 			B[2+n+m*N] = A[2+m+n*M];
 		}
 	}
@@ -414,6 +642,23 @@ function mat2str(A,name) {
 		}
 	}
 	return str;
+}
+
+function mat2img(A,name) {
+	// create an image and fill it with the matrix values
+	width = matcol(A);
+	height = matrow(A);
+	newImage(name, "32-bit", width, height, 1);
+	id = getImageID();
+	for (y = 0; y < height; y++) {
+		for (x = 0; x < width; x++) {
+			setPixel(x, y, matget(A,y,x));
+		}
+	}
+	run("Enhance Contrast", "saturated=0.0");
+	run("In [+]");
+	run("In [+]");
+	return id;
 }
 
 function matadd(A,B,alpha) {
@@ -463,8 +708,35 @@ function matmul(A,B) {
 	return C;
 }
 
+function mat_mul(A,B) {
+	// multiply entry wise the two matrices
+	// C[i,j] = A[i,j] * B[i,j]
+	assert((A.length == B.length), "A and B have incompatible size");
+	N = A[0];
+	M = A[1];
+	C = matzeros(N,M)
+	for (i = 2; i < C.length; i++) {
+		C[i] = A[i] * B[i];
+	}
+	return C;
+}
+
+function mat_div(A,B) {
+	// divide entry wise A by B
+	// C[i,j] = A[i,j] / B[i,j]
+	assert((A.length == B.length), "A and B have incompatible size");
+	N = A[0];
+	M = A[1];
+	C = matzeros(N,M);
+	for (i = 2; i < C.length; i++) {
+		C[i] = A[i] / B[i];
+	}
+	return C;
+}
+
+
 function matsum(A,dim) {
-	// sum values of A algon 1 dimension (0 or 1)
+	// sum values of A algon 1 dimension (0 or 1), if dim==-1, sum over all values
 	N = A[0];
 	M = A[1];
 	if(dim==0) {
@@ -474,11 +746,18 @@ function matsum(A,dim) {
 				S[2+m] = S[2+m] + A[2+m+n*M];
 			}
 		}
-	} else {
+	} else if (dim==1){
 		S = matzeros(N,1);
 		for (n = 0; n < N; n++) {
 			for (m = 0; m < M; m++) {
 				S[2+n] = S[2+n] + A[2+m+n*M];
+			}
+		}
+	} else {
+		S = 0;
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S = S + A[2+m+n*M];	
 			}
 		}
 	}
@@ -486,12 +765,45 @@ function matsum(A,dim) {
 }
 
 function matmean(A,dim) {
-	// average along one dimension
+	// average along dimension if dim==0 or 1
 	B = matsum(A,dim);
-	for (i = 2; i < B.length; i++) {
-		B[i] = B[i] / A[dim];
+	if (dim == 0 || dim==1) {
+		for (i = 2; i < B.length; i++) {
+			B[i] = B[i] / A[dim];
+		}
+	} else {
+		B = B / (A[0]*A[1]);
 	}
 	return B;
+}
+
+function matmax(A,dim) {
+	// average along one dimension
+	N = A[0];
+	M = A[1];
+	if(dim==0) {
+		S = matzeros(1,M);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+m] = maxOf(S[2+m],A[2+m+n*M]);
+			}
+		}
+	} else if (dim==1){
+		S = matzeros(N,1);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+n] = maxOf(S[2+n],A[2+m+n*M]);
+			}
+		}
+	} else {
+		S = A[2];
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S = maxOf(S,A[2+m+n*M]);	
+			}
+		}
+	}
+	return S;
 }
 
 function solve(A,B) {
@@ -524,6 +836,7 @@ function matnorm(A) {
 	return sqrt(n);
 }
 
+
 function testmat() {
 	// a serie of test for matrices
 	A = matnew(2,2,newArray(1,0,0,1));
@@ -547,4 +860,3 @@ function testmat() {
 }
 
 /// END Of Basic Linear Algebra routines
-
