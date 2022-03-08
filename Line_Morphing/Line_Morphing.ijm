@@ -1,3 +1,5 @@
+#@Float(label="Interpolation interval [px]", value=1) interval
+#@Float(label="Bandwidth [px]", value=1) band
 /*
  * Line Moprhing
  * 
@@ -11,7 +13,7 @@
  * 
  * Jerome for Dina 2022
  */
-run("Close All");
+//run("Close All");
 print("\\Clear");
 
 if (nImages==0) {
@@ -20,60 +22,150 @@ if (nImages==0) {
 Overlay.remove();
 id = getImageID();
 getDimensions(width, height, channels, slices, frames);
+
+// check the ROI
+if (roiManager("count")!=2) {
+	exit("Please add only 2 ROI to the ROI Manager");
+}
+for (i=0;i<2;i++) {
+	roiManager("select", i);
+	if (!(matches(Roi.getType,"polyline")||matches(Roi.getType,"freeline"))) {
+		exit("ROI " + (i+1) + " is not a segmented line");
+	}
+}
+setBatchMode("hide");
 // get the coordinates of the two lines
 p0 = getROICoordinates(0);
 Roi.getPosition(channel, z0, frame);
 p1 = getROICoordinates(1);
 Roi.getPosition(channel, z1, frame);
-//print(z1);
-//print(mat2str(p0,"p0"));
-//print(mat2str(p1,"p1"));
 
 // compute paiwie distances
 D = pairwiseDistance(p0,p1);
-//print(mat2str(D,"D"));
-//mat2img(D,"D");
 
 // find the mapping
-P = sinkhorn_uniform(D,10);
-mat2img(P,"P");
+P = sinkhorn_uniform(D,-1);
 
-// displacement interpolation from one line into the other
-selectImage(id);
-n = matcol(p0);
-m = matcol(p1);
-pmax = matmax(P,-1);
-for (z = z0; z <= z1; z++) {
-	t = (z-z0) / (z1-z0);	
-	x = newArray(1000);
-	y = newArray(1000);
-	k = 0;
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < m; j++) {
-			w = matget(P,i,j);
-			if (w > 0.1 * pmax) {
-				x[k] = (1-t) * matget(p0,0,i) + t * matget(p1,0,j);
-				y[k] = (1-t) * matget(p0,1,i) + t * matget(p1,1,j);				
-				k = k + 1;
-			}
-		}
-	}
-	x = Array.trim(x, k);
-	y = Array.trim(y, k);
-	//Array.print(x);
-	//Array.print(y);
-	Stack.setSlice(z);
-	makeLine(0,0,width/2,height/2,width,height);
-	Roi.setPolylineSplineAnchors(x, y);			
-	roiManager("add");
-	Overlay.addSelection("red");;	
-	Overlay.setPosition(1, z, 1);
-	Overlay.add;
-	wait(100);
+generateIntermediateROILines(id,P,p0,p1);
+
+id1 = measureIntensityAlongROI(id,interval,band);
+
+// clean up the added roi
+while (roiManager("count")>2) {
 	roiManager("select", roiManager("count")-1);
 	roiManager("delete");
 }
+
 run("Select None");
+selectImage(id1);
+setBatchMode("exit and display");
+
+function measureIntensityAlongROI(id, interval, band) {
+	// measure the max length of the ROI
+	selectImage(id);
+	Stack.getDimensions(width, height, channels, slices, frames);
+	N = roiManager("count")-2;
+	length = newArray(N);
+	slices = newArray(N);
+	for (i = 0; i < N; i++) {
+		roiManager("select", i+2);
+		run("Interpolate", "interval="+interval+" smooth");
+		Roi.getCoordinates(x, y);
+		length[i] = x.length;
+		//Roi.getPosition(channel, slice, frame);
+		Stack.getPosition(channel, slice, frame);
+		slices[i] = slice;
+	}
+	Array.print(slices);
+	Array.getStatistics(length, lmin, lmax);
+	Array.getStatistics(slices, smin, smax);	
+	newImage("Intensity", "32-bit composite-mode", lmax, smax - smin, channels, 1, 1);
+	dst = getImageID();
+	for (i = 0; i < N; i++) {
+		selectImage(id);
+		roiManager("select", i+2);		
+		run("Interpolate", "interval="+interval+" smooth");
+		Roi.getCoordinates(x, y);
+		// compute the normal vector and normalize it
+		u = diff(x);
+		v = diff(y);
+		for (j=0;j<u.length;j++) {
+			norm = sqrt(u[j]*u[j]+v[j]*v[j]);
+			u[i] = u[i] / norm;
+			v[i] = v[i] / norm;
+		}
+		run("Select None");
+		I = newArray(x.length);		
+		for (c = 1; c <= channels; c++) {
+			selectImage(id);	
+			Stack.setChannel(c);
+			for (j = 0; j < x.length; j++) {
+				swx = 0;
+				sw = 0;
+				for (s = -band; s < band; s+=0.5) {					
+					swx += getPixel(x[j]+s*u[i], y[j]-s*v[i]);
+					sw += 1;
+				}
+				I[j] = swx / sw;
+			}
+			selectImage(dst);
+			if (channels>1) {Stack.setChannel(c);}			
+			for (j = 0; j < x.length; j++) {
+				//shift = round((lmax - x.length)/2); // shift to center intensities				
+				setPixel(j, slices[i]-smin, I[j]);	
+			}
+		}
+	}
+	selectImage(dst);
+	for (c=1;c<=channels;c++) {		
+		if (channels>1) {Stack.setChannel(c);}	
+		run("Enhance Contrast", "saturated=0.35");
+	}
+	return dst;
+}
+
+function generateIntermediateROILines(id,P,p0,p1) {
+	/* displacement interpolation from one line into the other
+	 *  id : image id
+	 *  P  : linking [n,m] matrix 
+	 *  p0 : coordinates of the control points [2,n] of the 1st line
+	 *  p1 : coordinates of the control points [2,m] of the 2nd line
+	 */
+	selectImage(id);
+	n = matcol(p0);
+	m = matcol(p1);
+	pmax = matmax(P,-1);
+	for (z = z0; z <= z1; z++) {
+		t = (z-z0) / (z1-z0);
+		// this make the deformation more progressive at the begining and the end
+		t = 3 * t * t - 2 * t * t * t;
+		x = newArray(1000);
+		y = newArray(1000);
+		k = 0;
+		for (i = 0; i < n; i++) {
+			for (j = 0; j < m; j++) {
+				w = matget(P,i,j);
+				if (w > 0.5 * pmax) {
+					x[k] = (1-t) * matget(p0,0,i) + t * matget(p1,0,j);
+					y[k] = (1-t) * matget(p0,1,i) + t * matget(p1,1,j);				
+					k = k + 1;
+				}
+			}
+		}
+		x = Array.trim(x, k);
+		y = Array.trim(y, k);
+		Stack.setSlice(z);
+		makeLine(0,0,width/2,height/2,width,height);
+		Roi.setPolylineSplineAnchors(x, y);	
+		Stack.getPosition(channel, slice, frame);
+		Roi.setPosition(channel, slice, frame);		
+		roiManager("add");
+		Overlay.addSelection("red");;	
+		Overlay.setPosition(1, z, 1);
+		Overlay.add;	
+	}
+	run("Select None");
+}
 
 
 function createTest() {
@@ -83,7 +175,7 @@ function createTest() {
 	height = 200;
 	depth = 10;
 	newImage("Test Image", "8-bit black", width, height, 1, depth, 1);	
-	n = 5;
+	n = 10;
 	m = 6;
 	b = 10;
 	s = 10;
@@ -103,8 +195,7 @@ function createTest() {
 		}		
 		makeLine(0, 0, width, height);
 		Roi.setPosition(1, z, 1);
-		Roi.setPolylineSplineAnchors(x, y);		
-		
+		Roi.setPolylineSplineAnchors(x, y);				
 		if (z==1 || z==depth) {	
 			run("Interpolate", "interval=5 smooth");
 			Roi.setPosition(1, z, 1);			
@@ -115,6 +206,20 @@ function createTest() {
 		fill();
 	}
 }
+
+
+function diff(u) {
+	// centered finite difference with symmetric bc
+	n = u.length;
+	d = newArray(n);	
+	d[0] = u[1] - u[0];	
+	for (i = 1; i < n - 1; i++) {
+		d[i] = (u[i+1] - u[i-1]) / 2.0;
+	}
+	d[n-1] = u[n-1] - u[n-2];
+	return d; 
+}
+
 
 function sinkhorn_uniform(C,gamma) {
 	// Optimal transport using uniform weights
@@ -152,7 +257,7 @@ function sinkhorn(C,p,q,gamma) {
 	if (gamma < 0) {
 		minc = C[2];
 		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
-		gamma = 10/minc;
+		gamma = 10*minc;
 		print("min c: "+minc+" gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
