@@ -19,6 +19,9 @@
  *  	1. The name of the model table has to be 'Models.csv'. Rename if needed
  *  	2. The macro will work on small images (tested on 1024x1024) and is relatively slow.
  *  	3. Some error may occur, try closing the results and models.csv tables.
+ *  	
+ *  	
+ *  TODO: generateTestImage, fix smatch
  *   
  * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
@@ -146,25 +149,40 @@ function estimateTfm(c1,c2,degree) {
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c2); exit();
 	}
+	
 	//print(mat2str(Y, "channel 2: Y"));
-
 	M = icp(X,Y);
-
 	//print(mat2str(M, "transform"));
 	return M;
 }
 
 function icp(X,Y) {
 	// iterative closest point
-	//M = solve(X,Y);
+	// X : coordinate matrix
+	// Y : coordinate matrix
+	// return the transformation matrix		
+	n = X[0];
+	if (n > 10) {
+		rho = minOf(0.75, 100/n); // take at most 100 points
+	} else {
+		rho = 1;
+	}	
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
-	matset(M,2,1,1);	
-	for (iter = 0; iter < 10; iter++) {
-		MX = matmul(X,M);
+	matset(M,2,1,1);
+	e0 = 0;	
+	for (iter = 0; iter < 3; iter++) {				
+		MX = matmul(X,M);		
 		Yi = nnmatch(MX,Y);
-		M = solve(X,Yi);
-	}
+		e1 = errorDistance(X,Yi);
+		I = matsampler(n,1,rho);
+		Xs = matsubsetrow(X,I);
+		Yis = matsubsetrow(Yi,I);
+		M = solve(Xs,Yis);	
+		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
+		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-6) {break;}		
+		e0 = e1;
+	}	
 	M = mattranspose(M);
 	return M;
 }
@@ -194,12 +212,12 @@ function nnmatch(X,Y) {
 
 function smatch(X,Y) {
 	// for each row of Y[Nx2] find the closest row in X[Nx2]
-	// use the sinkhorn algorithm to find the best match
-	p = mattranspose(X);
-	q = mattranspose(Y);
-	C = pairwiseDistance(p,q);
+	// use the sinkhorn algorithm to find the best match	
+	//print(matshape2str(X,"X"));
+	//print(matshape2str(Y,"Y"));
+	C = pairwiseDistance(X,Y);	
 	P = sinkhorn_uniform(C,-1);
-	mat2img(P,"P");
+	//mat2img(P,"P");
 	Yi = matzeros(X[0],Y[1]);
 	for (i = 0; i < X[0]; i++) {
 		maxi = -1;
@@ -220,6 +238,7 @@ function smatch(X,Y) {
 }
 
 
+
 function sinkhorn_uniform(C,gamma) {
 	// Optimal transport using uniform weights
 	n = matrow(C);
@@ -238,7 +257,7 @@ function sinkhorn(C,p,q,gamma) {
 	 * q : mass [m,1] vector (probability)
 	 * gamma : entropic regularization parameter
 	 * Note
-	 * - p and q will be normalized by their sum and reshaped as column vector
+	 * - p and q will be normalized by their sum and res+++haped as column vector
 	 * - if gamma < 0, gamma is set to 10/min(C) 
 	 * 
 	 */
@@ -256,8 +275,8 @@ function sinkhorn(C,p,q,gamma) {
 	if (gamma < 0) {
 		minc = C[2];
 		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
-		gamma = 10*minc;
-		//print("min c: "+minc+" gamma = "+gamma);
+		gamma = maxOf(0.01,200*minc);
+		print("min c: "+minc+" gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
 	xi = matzeros(n,m);	
@@ -280,29 +299,59 @@ function sinkhorn(C,p,q,gamma) {
 		b = mat_div(q,xita);
 	}
 	// P = diag(a)*xi*diag(b)
+	P = matzeros(n,m);
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {			
+			P[2+j+m*i] = xi[2+j+m*i] * a[2+i] * b[2+j];
+		}
+	}
+	/*
 	a = matdiag(a);
 	b = matdiag(b);
 	P = matmul(xi, b);
-	P = matmul(a, P);
-	
+	P = matmul(a, P);	
+	*/
 	return P;
 }
 
+function errorDistance(X,Y) {
+	// Compute the error distance between matching X and Y
+	// X : [n,2] coordinate matrix
+	// Y : [m,2] coordinate matrix
+	// return the average distance	
+	//print("X ["+X[0]+","+X[1]+"]");
+	//print("Y ["+Y[0]+","+Y[1]+"]");
+	n = matrow(X);
+	D = 2;
+	e = 0;
+	for (i = 0; i < n; i++) {		
+		s = 0;
+		for (k = 0; k < D; k++) {
+			d = matget(X,i,k) - matget(Y,i,k);
+			s += d*d;
+		}
+		e += sqrt(s);		
+	}
+	e = e/n;
+	return e;
+}
 
 function pairwiseDistance(p,q) {
-	// Compute the pairwie distance between p and q
-	// P : 2xn coordinate matrix
-	// Q : 2xm coordinate matrix
+	// Compute the pairwie distance between p and q 
+	// P : coordinate matrix [n,2]
+	// Q : coordinate matrix [m,2]
 	// return distance [n x m] matrix
-	n = matcol(p);
-	m = matcol(q);
-	D = matrow(p);
+	//print("p ["+p[0]+","+p[1]+"]");
+	//print("q ["+q[0]+","+q[1]+"]");
+	n = matrow(p);
+	m = matrow(q);
+	D = 2;
 	a = matzeros(n,m);
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {
 			s = 0;
 			for (k = 0; k < D; k++) {
-				d = matget(p,k,i) - matget(q,k,j);
+				d = matget(p,i,k) - matget(q,j,k);
 				s += d*d;
 			}
 			matset(a,i,j,s);
@@ -409,13 +458,13 @@ function fitBeadXY(x0,y0,s) {
 			bg = minOf(bg, getPixel(x0+dx, y0+dy));
 		}
 	}
-	for (i = 0; i < 10; i++) {			
+	for (i = 0; i < 20; i++) {			
 		sv = 0;
 		x1 = 0;
 		y1 = 0;
 		for (dy = -s; dy <= s; dy+=0.5) {
 			for (dx = -s; dx <= s; dx+=0.5) {
-				d = (dx*dx+dy*dy)/(9*s*s);			
+				d = (dx*dx+dy*dy)/(6*s*s);			
 				v = maxOf(0, getPixel(x0+dx, y0+dy)-bg) * exp(-0.5*d);				
 				x1 += (x0+dx) * v;
 				y1 += (y0+dy) * v;
@@ -517,8 +566,6 @@ function image2Array(w,h) {
 	return A;
 }
 
-
-
 /////////////////////////////////////////////////////////
 // Basic Linear Algebra
 ////////////////////////////////////////////////////////
@@ -527,6 +574,13 @@ function assert(cond, msg) {
 	if (!(cond)) {
 		exit(msg);
 	}
+}
+
+function matcheck(A, name) {
+	// check if the size of the matrix are consistent
+	if (A.length != 2+A[0]*A[1]) {
+		print("Matrix "+name+" is not consistent");
+	}	
 }
 
 function matnew(n,m,vals) {
@@ -613,16 +667,27 @@ function matget(A,i,j) {
 }
 
 function mattranspose(A) {
-	// transpose matrix A
+	// transpose matrix A	
 	M = matcol(A);
 	N = matrow(A);
+	//assert((A.length == 2+N*M),"mattranspose: size of the array does not match matrix dimensions");
+	
 	B = matzeros(M,N);
-	for (n=0;n<N;n++) {
+	for (n = 0; n < N; n++) {
 		for (m = 0; m < M; m++) {
 			B[2+n+m*N] = A[2+m+n*M];
 		}
 	}
 	return B;
+}
+
+function matshape2str(A,name) {
+	if (A.length == 0){
+		str = name + "is an empty matrix";
+	} else {
+		str = name + " ["+A[0]+"x"+A[1]+"] size:"+A.length+"\n";
+	}
+	return str;
 }
 
 function mat2str(A,name) {
@@ -806,6 +871,35 @@ function matmax(A,dim) {
 	return S;
 }
 
+function matmin(A,dim) {
+	// average along one dimension
+	N = A[0];
+	M = A[1];
+	if(dim==0) {
+		S = matzeros(1,M);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+m] = minOf(S[2+m],A[2+m+n*M]);
+			}
+		}
+	} else if (dim==1){
+		S = matzeros(N,1);
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S[2+n] = minOf(S[2+n],A[2+m+n*M]);
+			}
+		}
+	} else {
+		S = A[2];
+		for (n = 0; n < N; n++) {
+			for (m = 0; m < M; m++) {
+				S = minOf(S,A[2+m+n*M]);	
+			}
+		}
+	}
+	return S;
+}
+
 function solve(A,B) {
 	// Solve A*X=B by iterating X=X-At(AX - B)
 	// A[NxM] x X[MxK] = B [NxK]
@@ -836,6 +930,42 @@ function matnorm(A) {
 	return sqrt(n);
 }
 
+function matsubsetrow(A,I) {
+	// Extract rows from A where I is 1
+	n = matrow(A);
+	m = matcol(A);
+	if (I[0] != A[0]) {
+		print("error in matsubsetrow, I has "+I[0]+" rows and A has "+A[0]" rows");
+	}
+	k = 0;
+	B = Array.copy(A);
+	for (i = 0; i < n; i++) {
+		if (I[i] > 0) {			
+			for (j = 0; j < m; j++) {
+				B[2+j+m*k] = A[2+j+m*i];			
+				//matset(B,k,j,matget(A,i,j));				
+			}
+			k = k+1;
+		}
+	}
+	B = Array.trim(B, 2+m*(k-1));
+	B[0] = k-1;
+	return B;
+}
+
+function matsampler(n,m,rho) {
+	// Generate a random sampling matrix
+	// n: number of rows
+	// m : number of colmns
+	// rho: proba [0-1] of being 1
+	I = matzeros(n,m);
+	for (i=2;i<n*m;i++) {
+		if (random < rho) {
+			I[i] = 1;
+		}
+	}
+	return I;
+}
 
 function testmat() {
 	// a serie of test for matrices
