@@ -171,16 +171,16 @@ function icp(X,Y) {
 	matset(M,1,0,1);
 	matset(M,2,1,1);
 	e0 = 0;	
-	for (iter = 0; iter < 3; iter++) {				
+	for (iter = 0; iter < 100; iter++) {				
 		MX = matmul(X,M);		
 		Yi = nnmatch(MX,Y);
 		e1 = errorDistance(X,Yi);
 		I = matsampler(n,1,rho);
 		Xs = matsubsetrow(X,I);
 		Yis = matsubsetrow(Yi,I);
-		M = solve(Xs,Yis);	
+		M = solve(X,Yi);	
 		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
-		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-6) {break;}		
+		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break;}		
 		e0 = e1;
 	}	
 	M = mattranspose(M);

@@ -36,7 +36,8 @@ function correct() {
 	for (channel = 2; channel <= channels; channel++){
 		showProgress(channel,channels);
 		vx = getResult("X", channel - 1);
-		vy = getResult("Y", channel - 1);			
+		vy = getResult("Y", channel - 1);
+			
 		if (vx*vx+vy*vy>0.0001) {
 			for (slice = 1; slice <= slices; slice++) {
 				for (frame = 1; frame <= frames; frame++) {					
