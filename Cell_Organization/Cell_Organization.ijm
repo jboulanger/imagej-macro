@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@String  (label="Mask channel", value=2) mask_channel
+#@Integer (label="Mask channel", value=2) mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
@@ -150,7 +150,9 @@ function process_list_of_files(tablename, condition, channel_names, roi_channel,
 		selectWindow(tbl2);
 		Table.save(path + File.separator + replace(File.getName(tablename),".csv", "-obj.csv" ));		
 		selectWindow("Log");
-		saveAs("Text", path + File.separator + replace(File.getName(tablename),".csv", "-log.txt" ));		
+		saveAs("Text", path + File.separator + replace(File.getName(tablename),".csv", "-log.txt" ));
+		run("Close All");
+		run("Collect Garbage");
 	}	
 }
 
@@ -162,7 +164,7 @@ function isAbsolutePath(p) {
 		} else {
 			return false;
 		}
-	} else {
+	} else {		
 		if (charCodeAt(p,0)==47) {
 			print("absolute");
 			return true;
@@ -244,9 +246,13 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (channel_names.length != channels) {
+		print("number of channels " + channels);
+		Array.print(channel_names);
 		exit("*** Error not enough channel names !***");
 		return 1;
 	}
+
+	
 	
 	if (use_stardist) {
 		rois = segmentStarDist(getImageID, roi_channel);
@@ -449,6 +455,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 	selectImage(id);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	getPixelSize(unit, pixelWidth, pixelHeight);
+	print("Pixel szie " + pixelWidth +"x"+pixelHeight +" "+ unit);
 	run("Subtract Background...", "rolling=10");
 	// initialize accumulators
 	swx = newArray(rois.length);
@@ -572,6 +579,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 				setThreshold(OUTOFBOUND+1, -OUTOFBOUND);
 				run("Create Selection");
 				Table.set("ROI Area", n, getValue("Area"));
+				Table.set("ROI Area["+unit+"^2]", n, getValue("Area") * pixelWidth * pixelHeight);
 				for (c = 1; c <= channels; c++) {
 					selectImage(id);				
 					Stack.setChannel(c);
@@ -759,11 +767,18 @@ function segmentStarDist(id, ch) {
 	print(" - segment  channel #" + ch + " with StarDist");
 	selectImage(id);
 	run("Select None");		
-	run("Duplicate...", "title=[mask-"+ch+"] duplicate channels="+ch);
+	run("Duplicate...", "title=[mask] duplicate channels="+ch);
 	id1 = getImageID();
-	n0 = roiManager("count");	
-	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'mask-"+ch+"', 'modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'1.0', 'percentileTop':'99.8', 'probThresh':'0.5', 'nmsThresh':'0.4', 'outputType':'ROI Manager', 'nTiles':'1', 'excludeBoundary':'2', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
+	n0 = roiManager("count");		
+	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'mask', 'modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'0.0', 'percentileTop':'100.0', 'probThresh':'0.479071', 'nmsThresh':'0.3', 'outputType':'ROI Manager', 'nTiles':'1', 'excludeBoundary':'2', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
+	wait(2000);
+	//selectWindow("ROI Manager");	
 	n1 = roiManager("count");
+	print("n0:"+n0+", n1:"+n1);
+	if (n1 < n0+2)	 {		
+		setBatchMode("exit and display");
+		exit();
+	}
 	a = generateSequence(n0,n1-1);
 	cmap = newArray("#5555AA","#55AA55","#FF9999","#FFFF55");
 	for (i = n0; i < n1; i++) {
@@ -774,6 +789,7 @@ function segmentStarDist(id, ch) {
 	selectImage(id);
 	roiManager("show all without labels");
 	print("   - "+(a.length)+" ROI added");
+
 	return a;
 }
 
@@ -849,6 +865,7 @@ function segmentBackground(id, channel, zoom) {
 
 function generateSequence(a,b) {	
 	// create an array with a sequence from a to b with step 1
+	if (b<=a) {return newArray();}
 	A = newArray(b-a+1);
 	for (i = 0; i < A.length; i++) {A[i] = a+i;}
 	return A;
@@ -931,6 +948,7 @@ function laplaceparam() {
 ///////////////////////////////////////////////////////////////////////////////////
 
 function closeRoiManager() {
+	while (roiManager("count")>0) {roiManager("select", roiManager("count")-1);roiManager("delete");}
 	closeWindow("ROI Manager");
 }
 
