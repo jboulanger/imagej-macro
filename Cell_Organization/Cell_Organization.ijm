@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@String (label="Mask channel", value="max") mask_channel
+#@String (label="Mask channel", value="max", description="channel index or max for maximum of all channels") mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
