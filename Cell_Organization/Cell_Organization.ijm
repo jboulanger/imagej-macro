@@ -3,7 +3,7 @@
 #@String  (label="Channels name", value="DAPI,GFP") channel_names_str
 #@Integer (label="ROI channel", value=1) roi_channel
 #@Integer (label="Object channel", value=2) obj_channel
-#@Integer (label="Mask channel", value=2) mask_channel
+#@String (label="Mask channel", value="max") mask_channel
 #@Float   (label="Downsampling", value=2,min=1,max=10,style="slider") downsampling_factor
 #@Boolean (label="Segment ROI with StarDist", value=false) use_stardist
 #@Float   (label="ROI specificity", value=2.0) roi_logpfa
@@ -11,6 +11,7 @@
 #@Boolean (label="Remove ROI touching image borders", value=true) remove_border
 #@Boolean (label="Make band", value=true) makeband
 #@Boolean (label="Mask background", value=true) maskbg
+#@Float   (label="Mask specificity", value=2.0) mask_logpfa
 #@Float   (label="Distance min [um]", value=0) distance_min
 #@Float   (label="Distance max [um]", value=30) distance_max
 #@String  (label="Additional measurements",description="Comma separated list of measurements", value="Area,Perim.,Circ.,AR,Round,Solidity") measurements_str
@@ -271,7 +272,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	}
 	
 	if (maskbg) {
-		bg = segmentBackground(id, mask_channel, downsampling_factor);
+		bg = segmentBackground(id, mask_channel, mask_logpfa, downsampling_factor);
 		applyBackground(dist, bg);	
 		selectImage(bg); close();
 	}
@@ -294,6 +295,7 @@ function process_image(filename, condition, channel_names, roi_channel, obj_chan
 	selectImage(dist); close();
 	closeRoiManager();	
 	run("Collect Garbage");
+	run("Select None");
 	return 0;
 }
 
@@ -771,7 +773,15 @@ function segmentStarDist(id, ch) {
 	id1 = getImageID();
 	n0 = roiManager("count");		
 	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'mask', 'modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'0.0', 'percentileTop':'100.0', 'probThresh':'0.479071', 'nmsThresh':'0.3', 'outputType':'ROI Manager', 'nTiles':'1', 'excludeBoundary':'2', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
-	wait(2000);
+	wait(1000);
+	// clean up smaller ROI
+	n1 = roiManager("count");
+	for (i = n1-1; i >= n0; i--) {
+		roiManager("select", i);
+		if (getValue("Area") < 50) {
+			roiManager("delete");
+		}
+	}
 	//selectWindow("ROI Manager");	
 	n1 = roiManager("count");
 	print("n0:"+n0+", n1:"+n1);
@@ -847,7 +857,7 @@ function segment(id, ch, sharpen, bg, logpfa, minsz, fholes) {
 	return a;
 }
 
-function segmentBackground(id, channel, zoom) {
+function segmentBackground(id, channel, logpfa, zoom) {
 	/* Segment the background and return the image ID */
 	print(" - Segment background on channel " + channel);
 	selectImage(id);
@@ -855,10 +865,16 @@ function segmentBackground(id, channel, zoom) {
 		run("Z Project...", "projection=[Max Intensity]");
 	} else {
 		run("Duplicate...", "duplicate channels="+channel);		
-	}			
-	run("Median...", "radius="+Math.ceil(1+5/zoom));	
-	setImageThreshold(0.5);
-	run("Convert to Mask");	
+	}
+	run("32-bit");
+	run("Gaussian Blur...", "sigma=0.75");
+	run("Median...", "radius="+maxOf(2, Math.ceil(1+5/zoom)));
+	A = convertImageToArray();
+	t = maxOf(1, computeArrayQuantile(A, pow(10.,-logpfa)));
+	print(" - background threshold " + t + " @ perc:"+pow(10,-logpfa));
+	Array.getStatistics(A, min, max);
+	setThreshold(t, max);
+	run("Convert to Mask");
 	run("Fill Holes");
 	return getImageID;
 }
@@ -874,7 +890,7 @@ function generateSequence(a,b) {
 function setImageThreshold(logpfa) {	
 	// Compute a threshold from a quantile on robust statistics
 	A = convertImageToArray();
-	med = computeArrayQuantile(A,0.1);
+	med = computeArrayQuantile(A,0.5);
 	mad = computeMeanAbsoluteDeviation(A,med);		
 	t = med + logpfa * log(10) * mad;
 	print("  - med = " + med  + " mad = " + mad + " threshold = " + t);
@@ -885,7 +901,8 @@ function setImageThreshold(logpfa) {
 
 function computeArrayQuantile(A,q) {
 	P = Array.rankPositions(A);	
-	return A[P[round(q*A.length)]];
+	idx = maxOf(0, minOf(A.length, round(q*A.length)));
+	return A[P[idx]];
 }
 
 function computeArrayMedian(A) {
