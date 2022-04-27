@@ -4,7 +4,7 @@ B = imread('test.tif',2);
 R = imref2d(size(A),[-1,1],[-1,1]);
 imshowpair(A,B);
 %% Load the deformation and apply to the second image
-filename = '~/Desktop/Models.csv';
+filename = 'Models.csv';
 tab = readtable(filename);
 switch tab.M12(2)
     case 3        
