@@ -61,15 +61,19 @@ function generateTestImage() {
 		x = w/8 + 3/4*w * random;
 		y = h/8 + 3/4*h * random;
 		Stack.setChannel(1);		
-		drawGaussian(x,y);
+		//if (random<0.9) {
+			drawGaussian(x,y);
+	//	}
 		xi = 2 * x / w - 1;
 		yi = 2 * y / h - 1;		
 		xt = M[0] + M[1] * xi + M[2] * yi +  M[3] * xi*xi + M[4] * xi*yi + M[5]*yi*yi;
 		yt = M[6] + M[7] * xi + M[8] * yi + M[9] * xi*xi + M[10] * xi*yi + M[11]*yi*yi;
 		xt = w * (xt + 1) / 2;
 		yt = h * (yt + 1) / 2;
-		Stack.setChannel(2);		
-		drawGaussian(xt,yt);		
+		Stack.setChannel(2);	
+		//if (random<0.9) {
+			drawGaussian(xt,yt);		
+		//}
 	}
 }
 
@@ -201,46 +205,33 @@ function icp(X,Y) {
 	// X : coordinate matrix
 	// Y : coordinate matrix
 	// return the transformation matrix		
-	n = X[0];
-	if (n > 10) {
-		rho = minOf(0.75, 100/n); // take at most 100 points
-	} else {
-		rho = 1;
-	}	
+	n = X[0];	
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
-	e0 = 0;
-	count = 0;
-	Mstar=M;
-	estar=1e6;
-	
+	e0 = 0;		
 	for (iter = 0; iter < 30; iter++) {
 		MX = matmul(X,M);		
 		Yi = smatch(MX,Y);
-		e0 = errorDistance(MX,Yi);
+		e0 = meanErrorDistance(MX,Yi);
 				
-		//I = matsampler(n,1,rho);
-		//Xs = matsubsetrow(X,I);
-		//Yis = matsubsetrow(Yi,I);
 		M = solve(X,Yi);
 		
 		MX = matmul(X,M);		
-		e1 = errorDistance(MX,Yi);
-		if (e1 < estar) {Mstar = Array.copy(M);}
+		e1 = meanErrorDistance(MX,Yi);		
 		
 		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
-		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {count++;}		
-		if (count > 2){break;}		
+		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break++;}				
 	}	
-	Mstar = mattranspose(Mstar);
+	M = mattranspose(M);
 	getDimensions(w, h, channels, slices, frames);	
 	for (i = 0; i < matrow(X); i++) {
 		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Yi,i,0)+1)/2, h*(matget(Yi,i,1)+1)/2);
 		Overlay.show();
 	}	
-	return Mstar;
+	return M;
 }
+
 
 function nnmatch(X,Y) {
 	// for each row of Y[Nx2] find the closest row in X[Nx2]
@@ -291,8 +282,6 @@ function smatch(X,Y) {
 	}
 	return Yi;
 }
-
-
 
 function sinkhorn_uniform(C,gamma) {
 	// Optimal transport using uniform weights
@@ -369,7 +358,7 @@ function sinkhorn(C,p,q,gamma) {
 	return P;
 }
 
-function errorDistance(X,Y) {
+function meanErrorDistance(X,Y) {
 	// Compute the error distance between matching X and Y
 	// X : [n,2] coordinate matrix
 	// Y : [m,2] coordinate matrix
@@ -391,8 +380,29 @@ function errorDistance(X,Y) {
 	return e;
 }
 
+function errorDistance(X,Y) {
+	// Compute the error distance between matching X and Y
+	// X : [n,2] coordinate matrix
+	// Y : [m,2] coordinate matrix
+	// return error
+	//print("X ["+X[0]+","+X[1]+"]");
+	//print("Y ["+Y[0]+","+Y[1]+"]");
+	n = matrow(X);
+	D = 2;	
+	E = matzeros(n,1);
+	for (i = 0; i < n; i++) {		
+		s = 0;
+		for (k = 0; k < D; k++) {
+			d = matget(X,i,k) - matget(Y,i,k);
+			s += d*d;
+		}
+		matset(E,i,0,sqrt(s));		
+	}	
+	return E;
+}
+
 function pairwiseDistance(p,q) {
-	// Compute the pairwie distance between p and q 
+	// Compute the pairwise distance between p and q 
 	// P : coordinate matrix [n,2]
 	// Q : coordinate matrix [m,2]
 	// return distance [n x m] matrix
