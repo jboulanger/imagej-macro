@@ -49,37 +49,40 @@ print("Done");
 
 function generateTestImage() {
 	w = 500;
-	h = 500;
+	h = 500;	
 	newImage("test", "8-bit composite-mode", w, h, 2, 1, 1);	
-	N = 10;	
+	N = 30;	
 	a = 1e-1;
 	b = 1e-2;
-	c = 1e-1;
+	c = 1e-1;	
 	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
-	Array.print(M);
-	setColor(255);;
-	for (k = 0; k < N; k++) {		
+	Array.print(M);	
+	for (k = 0; k < N; k++) {
 		x = w/8 + 3/4*w * random;
 		y = h/8 + 3/4*h * random;
-		Stack.setChannel(1);
-		makeOval(x-1,y-1,2,2);
-		fill();			
-		//drawGaussian(x,y);
-		fill();
+		Stack.setChannel(1);		
+		drawGaussian(x,y);
 		xi = 2 * x / w - 1;
 		yi = 2 * y / h - 1;		
 		xt = M[0] + M[1] * xi + M[2] * yi +  M[3] * xi*xi + M[4] * xi*yi + M[5]*yi*yi;
 		yt = M[6] + M[7] * xi + M[8] * yi + M[9] * xi*xi + M[10] * xi*yi + M[11]*yi*yi;
 		xt = w * (xt + 1) / 2;
-		yt = h * (yt + 1) / 2;		
-		Stack.setChannel(2);
-		makeOval(xt-1,yt-1,2,2);
-		fill();
-		//drawGaussian(xt,yt);		
-		
+		yt = h * (yt + 1) / 2;
+		Stack.setChannel(2);		
+		drawGaussian(xt,yt);		
 	}
-	run("Select None");
-	run("Gaussian Blur...", "sigma=1");
+}
+
+function drawGaussian(xc,yc) {	
+	x0 = round(xc);
+	y0 = round(yc);
+	for (y = y0-3; y <= y0+3; y++) {
+		for (x = x0-3; x <= x0+3; x++) {
+			dx = x - xc;
+			dy = y - yc;
+			setPixel(x, y, 255 * exp(-0.25*(dx*dx+dy*dy)));			
+		}
+	}
 }
 
 function showBeads(){
@@ -117,8 +120,9 @@ function applyTransform(tblname) {
 }
 
 function estimateTransform(degree,tblname) {
-	// Estimate the alignement for each channel in the image stack
+	// Estimate the alignement for each channel in the image stack	
 	setBatchMode(true);
+	if (isOpen("Results")) {selectWindow("Results");run("Close");}
 	id0 = getImageID();
 	Table.create(tblname);
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -171,7 +175,7 @@ function estimateTfm(c1,c2,degree) {
 	// Estimate the transformation model by loading coordinate from 
 	// the result table.
 	w = getWidth();
-	h = getHeight();
+	h = getHeight();	
 	if (matches(degree,"Affine")) {
 		X = loadCoords(c1,3);
 	} else {
@@ -180,8 +184,7 @@ function estimateTfm(c1,c2,degree) {
 	//print(mat2str(X, "channel 1: X"));
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c1); exit();
-	}
-	
+	}	
 	Y = loadCoords(c2,2);
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c2); exit();
@@ -207,21 +210,36 @@ function icp(X,Y) {
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
-	e0 = 0;	
-	for (iter = 0; iter < 100; iter++) {				
+	e0 = 0;
+	count = 0;
+	Mstar=M;
+	estar=1e6;
+	
+	for (iter = 0; iter < 30; iter++) {
 		MX = matmul(X,M);		
-		Yi = nnmatch(MX,Y);
-		e1 = errorDistance(X,Yi);
-		I = matsampler(n,1,rho);
-		Xs = matsubsetrow(X,I);
-		Yis = matsubsetrow(Yi,I);
-		M = solve(X,Yi);	
+		Yi = smatch(MX,Y);
+		e0 = errorDistance(MX,Yi);
+				
+		//I = matsampler(n,1,rho);
+		//Xs = matsubsetrow(X,I);
+		//Yis = matsubsetrow(Yi,I);
+		M = solve(X,Yi);
+		
+		MX = matmul(X,M);		
+		e1 = errorDistance(MX,Yi);
+		if (e1 < estar) {Mstar = Array.copy(M);}
+		
 		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
-		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break;}		
-		e0 = e1;
+		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {count++;}		
+		if (count > 2){break;}		
 	}	
-	M = mattranspose(M);
-	return M;
+	Mstar = mattranspose(Mstar);
+	getDimensions(w, h, channels, slices, frames);	
+	for (i = 0; i < matrow(X); i++) {
+		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Yi,i,0)+1)/2, h*(matget(Yi,i,1)+1)/2);
+		Overlay.show();
+	}	
+	return Mstar;
 }
 
 function nnmatch(X,Y) {
@@ -440,8 +458,8 @@ function loadCoords(channel, M) {
 			k = k + 1; 
 		}
 	}
-	a[0] = k-1;
-	a = Array.trim(a,2+M*(k-1)+M);
+	a[0] = k;
+	a = Array.trim(a,2+M*(k)+M);
 	print("Loaded " + k + " points from channel "+ channel);
 	return a;
 }
@@ -475,7 +493,7 @@ function getBeadsLocation(channel) {
 		pos = fitBeadXY(xm,ym,2);		
 		if (!(isNaN(pos[0]) || isNaN(pos[0]))) {
 			xm = pos[0];
-			ym = pos[1];
+			ym = pos[1];			
 		}
 		setResult("X",i,xm);
 		setResult("Y",i,ym);		
@@ -501,7 +519,7 @@ function fitBeadXY(x0,y0,s) {
 		y1 = 0;
 		for (dy = -s; dy <= s; dy+=0.5) {
 			for (dx = -s; dx <= s; dx+=0.5) {
-				d = (dx*dx+dy*dy)/(6*s*s);			
+				d = (dx*dx+dy*dy)/(9*s*s);			
 				v = maxOf(0, getPixel(x0+dx, y0+dy)-bg) * exp(-0.5*d);				
 				x1 += (x0+dx) * v;
 				y1 += (y0+dy) * v;
