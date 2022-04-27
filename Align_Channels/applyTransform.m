@@ -8,8 +8,8 @@ filename = 'Models.csv';
 tab = readtable(filename);
 switch tab.M12(2)
     case 3        
-        M = reshape(tab.M12(3:end)',3,2)';                 
-        tform = affine2d(M(:,[2,3,1]));
+        M = reshape(tab.M12(3:end)',3,2)';                  
+        tform = images.geotrans.PolynomialTransformation2D([M(1,:),zeros(1,3)],[M(2,:),zeros(1,3)]);        
     case 6                    
         M =  reshape(tab.M12(3:end)',6,2)';        
         tform = images.geotrans.PolynomialTransformation2D(M(1,[1,2,3,5,4,6]),M(2,[1,2,3,5,4,6]));        
