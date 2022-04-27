@@ -32,6 +32,8 @@ If there are no image opened the macro generates a test image with 2 channels an
 
 ![image](https://user-images.githubusercontent.com/3415561/117965614-e5271f00-b31a-11eb-9ad2-09d67b6bdee1.png)
 
+## Reusing the transformation using imwarp in matlab
+The coordinated of the objects are normalized so that the image domain is [-1,1]x[-1,1] when estimating the registration. This can be taken into account when using imwarp in matlab by using imref2d. Columns of the matrices have to be permuted as well to match what affine2d and PolynomialTransformation2D are expecting as input. Look at the file applyTransform.m for more details.
 
 # Manually align channels
 Instead of using beads to calibrate the transformation, this macro used ROI from the ROI manager to estimate the shift between images.
