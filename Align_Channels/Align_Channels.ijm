@@ -25,10 +25,12 @@
  *   
  * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
+ 
+run("Set Measurements...", "  redirect=None decimal=9");
 
-if (nImages==0) {
-	path = File.openDialog("Open an image");
-	open(path);
+if (nImages==0) {	
+	generateTestImage();
+	exit();
 }
 
 if (matches(mode, "Estimate Beads")) {	
@@ -44,6 +46,41 @@ if (matches(mode, "Estimate Beads")) {
 	applyTransform(tblname);
 }
 print("Done");
+
+function generateTestImage() {
+	w = 500;
+	h = 500;
+	newImage("test", "8-bit composite-mode", w, h, 2, 1, 1);	
+	N = 10;	
+	a = 1e-1;
+	b = 1e-2;
+	c = 1e-1;
+	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
+	Array.print(M);
+	setColor(255);;
+	for (k = 0; k < N; k++) {		
+		x = w/8 + 3/4*w * random;
+		y = h/8 + 3/4*h * random;
+		Stack.setChannel(1);
+		makeOval(x-1,y-1,2,2);
+		fill();			
+		//drawGaussian(x,y);
+		fill();
+		xi = 2 * x / w - 1;
+		yi = 2 * y / h - 1;		
+		xt = M[0] + M[1] * xi + M[2] * yi +  M[3] * xi*xi + M[4] * xi*yi + M[5]*yi*yi;
+		yt = M[6] + M[7] * xi + M[8] * yi + M[9] * xi*xi + M[10] * xi*yi + M[11]*yi*yi;
+		xt = w * (xt + 1) / 2;
+		yt = h * (yt + 1) / 2;		
+		Stack.setChannel(2);
+		makeOval(xt-1,yt-1,2,2);
+		fill();
+		//drawGaussian(xt,yt);		
+		
+	}
+	run("Select None");
+	run("Gaussian Blur...", "sigma=1");
+}
 
 function showBeads(){
 	// load coordinates from the result table and add them to the ROI manager

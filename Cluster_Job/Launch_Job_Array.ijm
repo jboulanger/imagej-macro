@@ -1,6 +1,6 @@
 #@String (label="Username", value="username", description="Username on the host") username
 #@String (label="Host", value="hex", description="hostname to which command are send") hostname
-#@File (label="Template file", description="Script to send to the host") local_template_path
+#@File (label="Job file", description="Script to send to the host") local_template_path
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
 #@String (label="Remote share",description="Remote mounting point of the network share", value="/cephfs/") remote_share
 #@String (label="Data root location",description="Local path to the dataset", value="/cephfs/") local_data_path
@@ -12,6 +12,17 @@
  * The list of file is defined by the opened table.
  * To create a list of file use the macro File_Conversion/Parse_folder.ijm
  * 
+ * Prepare before running the macro:
+ * - map remote drives 
+ * - copy data to remote host
+ * - list jobs to run in a csv table and open it in imagej
+ * - create a job script unless you want to reuse an existing one 
+ * 
+ * The macro will
+ * - Creates a job folder in "Remote share" and copy the script "template file" and the "opened table"
+ * - Convert file to unix file ending
+ * - send a sbatch job.sh via ssh
+ * 
  * Jerome Boulanger 2021
  */
 
@@ -19,7 +30,7 @@ delay = 500; // artificial delays that prevent denial of service
 
 getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
 table_name = File.getNameWithoutExtension(Table.title);
-Table.rename(Table.name, table_name);
+Table.rename(Table.title, table_name);
 table_name += "-"+year+""+month+""+dayOfMonth+""+hour+""+minute+""+second+".csv";
 
 template_name = File.getName(local_template_path);
@@ -54,9 +65,15 @@ wait(delay);
 
 // start the job with a ssh command
 print("Start job " + template_name + " on " + hostname);
-ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, "--array=1-"+n, template_name, "\""+remote_path+"\"",remote_data_path);
+print("Remote data path: "+ remote_data_path);
+print("Remote path: "+ remote_path);
+print("Remote job dir: "+ remote_jobs_dir);
+ret = exec("ssh", username+"@"+hostname, "sbatch", "--chdir", remote_jobs_dir, "--array=1-"+n, template_name, remote_path, remote_data_path);
 wait(delay);
+print(ret);
 print("Ready\n");
+
+
 
 
 function convert_slash(src) {
