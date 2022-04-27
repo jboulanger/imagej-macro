@@ -21,7 +21,7 @@
  *  	3. Some error may occur, try closing the results and models.csv tables.
  *  	
  *  	
- *  TODO: generateTestImage, fix smatch
+ *  TODO: improve robustness to outliers
  *   
  * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
@@ -34,7 +34,7 @@ if (nImages==0) {
 }
 
 if (matches(mode, "Estimate Beads")) {	
-	print("Estimate transfrom from beads");
+	print("Estimate transfrom from beads");	
 	estimateTransform(model,tblname);
 } else if (matches(mode, "Estimate ROI")) {
 	print("Estimate transfrom from ROIs");
@@ -57,13 +57,14 @@ function generateTestImage() {
 	c = 1e-1;	
 	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
 	Array.print(M);	
+	rho = 1;
 	for (k = 0; k < N; k++) {
 		x = w/8 + 3/4*w * random;
 		y = h/8 + 3/4*h * random;
 		Stack.setChannel(1);		
-		//if (random<0.9) {
+		if (random<rho) {
 			drawGaussian(x,y);
-	//	}
+		}
 		xi = 2 * x / w - 1;
 		yi = 2 * y / h - 1;		
 		xt = M[0] + M[1] * xi + M[2] * yi +  M[3] * xi*xi + M[4] * xi*yi + M[5]*yi*yi;
@@ -71,9 +72,9 @@ function generateTestImage() {
 		xt = w * (xt + 1) / 2;
 		yt = h * (yt + 1) / 2;
 		Stack.setChannel(2);	
-		//if (random<0.9) {
+		if (random<rho) {
 			drawGaussian(xt,yt);		
-		//}
+		}
 	}
 }
 
@@ -125,6 +126,7 @@ function applyTransform(tblname) {
 
 function estimateTransform(degree,tblname) {
 	// Estimate the alignement for each channel in the image stack	
+	Overlay.remove;
 	setBatchMode(true);
 	if (isOpen("Results")) {selectWindow("Results");run("Close");}
 	id0 = getImageID();
@@ -152,6 +154,7 @@ function estimateTransform(degree,tblname) {
 
 function estimateTransformROI(degree,tblname) {
 	// Estimate the alignement for each channel in the image stack
+	Overlay.remove;
 	setBatchMode(true);
 	id0 = getImageID();
 	Table.create(tblname);
@@ -205,33 +208,43 @@ function icp(X,Y) {
 	// X : coordinate matrix
 	// Y : coordinate matrix
 	// return the transformation matrix		
-	n = X[0];	
+	n = X[0];
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
 	e0 = 0;		
-	for (iter = 0; iter < 30; iter++) {
-		MX = matmul(X,M);		
-		Yi = smatch(MX,Y);
-		e0 = meanErrorDistance(MX,Yi);
-				
-		M = solve(X,Yi);
+	for (iter = 0; iter < 30; iter++) {		
 		
+		MX = matmul(X,M);		
+		Yi = smatch(MX,Y);		
+		E = errorDistance(MX,Yi);						
+		e0 = matmean(E,-1);	
+		
+		E = matbelowthreshold(E,4*e0);		
+		Xs = matsubsetrow(X,E);
+		Yis = matsubsetrow(Yi,E);		
+		M = solve(Xs,Yis);
+				
 		MX = matmul(X,M);		
 		e1 = meanErrorDistance(MX,Yi);		
 		
 		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
 		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break++;}				
 	}	
-	M = mattranspose(M);
-	getDimensions(w, h, channels, slices, frames);	
-	for (i = 0; i < matrow(X); i++) {
-		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Yi,i,0)+1)/2, h*(matget(Yi,i,1)+1)/2);
-		Overlay.show();
-	}	
+	//MXs = matmul(Xs,M);
+	M = mattranspose(M);	
+	drawMatch(Xs,Yis);
 	return M;
 }
 
+function drawMatch(X,Y) {
+	// draw a line between each rows of X and Y	
+	getDimensions(w, h, channels, slices, frames);	
+	for (i = 0; i < matrow(X); i++) {			
+		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
+		Overlay.show();
+	}	
+}
 
 function nnmatch(X,Y) {
 	// for each row of Y[Nx2] find the closest row in X[Nx2]
@@ -319,7 +332,7 @@ function sinkhorn(C,p,q,gamma) {
 	if (gamma < 0) {
 		minc = C[2];
 		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
-		gamma = maxOf(0.01,200*minc);
+		gamma = maxOf(0.001,200*minc);
 		print("min c: "+minc+" gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
@@ -993,6 +1006,28 @@ function matnorm(A) {
 		n = n + A[i]*A[i];
 	}
 	return sqrt(n);
+}
+
+function matabovethreshold(A,t) {
+	/* Threshold matrix A 
+	 *  returns a matrix with 1 if Aij> t
+	 */	
+	B = matzeros(matrow(A),matcol(A));
+	for (i=2;i<A.length;i++) {
+		if (A[i] > t) {B[i]=1;} 
+	}
+	return B;
+}
+
+function matbelowthreshold(A,t) {
+	/* Threshold matrix A 
+	 *  returns a matrix with 1 if Aij> t
+	 */	
+	B = matzeros(matrow(A),matcol(A));
+	for (i=2;i<A.length;i++) {
+		if (A[i] < t) {B[i]=1;} 
+	}
+	return B;
 }
 
 function matsubsetrow(A,I) {
