@@ -44,4 +44,10 @@ Instead of using beads to calibrate the transformation, this macro used ROI from
 3. Run the macro in the apply model with the Models.csv table opened.
 4. Check the result
 
-
+# Alternative alignement methods
+- Named Point registration https://imagej.net/plugins/name-landmarks-and-register 
+- https://imagej.net/plugins/feature-extraction
+- cpselect in Matlab allow the selection of point of interest for estimating a transform
+- Feature Extraction plugins in Fiji https://imagej.net/plugins/feature-extraction
+- UnWarpJ 
+- Big Warp
