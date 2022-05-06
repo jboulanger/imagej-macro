@@ -2,7 +2,7 @@
 // @Double(label="Spot size [px]", value=1.0, style=slider, min=0.0, max=3.0) spot_size
 // @Double(label="Probablity of false alarm (log10)", value=1, style=slider, min=0, max=5) pfa
 // @Boolean(label="Render", value=true) dorender
-// @Double(label="Rendering spot size [px]", value=0.5, style=slider, min=0.0, max=3.0) rendering_spot_size
+// @Double(label="Rendering spot size [px]", value=0.5, style=slider, min=0.0, max=20.0) rendering_spot_size
 //
 //
 // Detection of spots in 3D stacks
@@ -27,16 +27,22 @@ if (nImages==0) {
 img = getImageID; 
 title = getTitle();
 Stack.getDimensions(width, height, channels, slices, frames);
+
 if (slices==1) {
 	spot = detect2DSpots(channel, spot_size, pfa);
+	count2DSpotsPerROI(spot, title);
+	if (dorender) {
+		overlaySpotImage(img, channel, spot, rendering_spot_size);
+	}
 } else {
 	spot = detect3DSpots(channel, spot_size, pfa);
-	count3DSpotsPerROI(title);
+	count3DSpotsPerROI(title);	
+	if (dorender) {
+		renderSpotImage(img, channel, spot, rendering_spot_size);
+	}
 }
+selectImage(spot);close();
 
-if (dorender) {
-	renderSpotImage(img, channel, spot, rendering_spot_size);
-}
 
 function count3DSpotsPerROI(name) {
 	getVoxelSize(w, h, d, unit);
@@ -51,38 +57,42 @@ function count3DSpotsPerROI(name) {
 		setResult("Number of Spots", row, n);
 		setResult("ROI volume ["+unit+"]", row, voxelCount * voxelVolume);
 		setResult("Spot density [Spot/"+unit+"]", row, n/(voxelCount*voxelVolume));
+		setResult("Spot size [px]", row, spot_size);
+		setResult("pfa", row, pfa);
 	}
 	updateResults();
 }
 
-function count2DSpotsPerROI(name) {
+function count2DSpotsPerROI(spot, name) {
+	selectImage(spot);
 	getPixelSize(unit, w, h);	
 	pixelArea= w*h;
 	for (i = 0; i < roiManager("count"); i++) {		
-		roiManager("select", i);		
-		getStatistics(area, mean, min, max, stdDev);		
-		n = round(mean * area / max);	
+		roiManager("select", i);						
+		n = getValue("RawIntDen") / 255;
+		area = getValue("Area");
 		row = nResults;
 		setResult("Name", row, name);	
 		setResult("ROI", row, i+1);
 		setResult("Number of Spots", row, n);
-		setResult("ROI volume ["+unit+"]", row, area * pixelArea);
-		setResult("Spot density [Spot/"+unit+"]", row, n/(voxelCount*voxelVolume));
+		setResult("ROI volume ["+unit+"]", row, area);
+		setResult("Spot density [Spot/"+unit+"]", row, n/area);
+		setResult("Spot size [px]", row, spot_size);
+		setResult("pfa", row, pfa);
 	}
 	updateResults();
 }
 
 function detect3DSpots(channel, size, pfa) {
 	setBatchMode(true);
-	run("Select None");
-	sigma1 = size;
-	sigma2 = 2 * size;
+	run("Select None");	
 	p = round(2*size+1);
 	id0 = getImageID;
 	// compute a difference of Gaussian
 	run("Duplicate...", "title=id1 duplicate channels="+channel);	
 	id1 = getImageID;	
 	run("32-bit");
+	
 	run("Gaussian Blur 3D...", "x="+sigma1+" y="+sigma1+" z="+sigma1);
 	run("Duplicate...", "title=id2 duplicate");
 	id2 = getImageID;
@@ -140,15 +150,17 @@ function detect3DSpots(channel, size, pfa) {
 
 function detect2DSpots(channel, size, pfa) {
 	setBatchMode(true);
-	run("Select None");
+	run("Select None");	
+	channel=2;
 	sigma1 = size;
-	sigma2 = 2 * size;
+	sigma2 = 3 * size;
 	p = round(2*size+1);
 	id0 = getImageID;
 	// compute a difference of Gaussian
 	run("Duplicate...", "title=id1 duplicate channels="+channel);	
 	id1 = getImageID;	
 	run("32-bit");
+	run("Square Root");
 	run("Gaussian Blur...", "sigma="+sigma1);	
 	run("Duplicate...", "title=id2 duplicate");
 	id2 = getImageID;
@@ -158,11 +170,12 @@ function detect2DSpots(channel, size, pfa) {
 	
 	// local maxima
 	selectImage(id1);
-	run("Duplicate...", "title=id3 duplicate");
+	run("Gaussian Blur...", "sigma="+sigma1);
+	run("Duplicate...", "title=id3 duplicate");	
 	id3 = getImageID;	
 	run("Maximum...", "radius="+p);
 	imageCalculator("Subtract 32-bit stack",id3,id1);
-	setThreshold(-0.1, 0.1);
+	setThreshold(-0.00001, 0.00001);
 	run("Make Binary", "method=Default background=Dark black");	
 	run("Divide...", "value=255 stack");
 	
@@ -170,7 +183,7 @@ function detect2DSpots(channel, size, pfa) {
 	selectImage(id1);
 	getStatistics(area, mean, min, max, stdDev);
 	lambda = -2*norminv(pow(10,-pfa));
-	//print("pfa="+pfa+" ->" +pow(10,-pfa) + "->"+lambda);
+	print("pfa="+pfa+" ->" +pow(10,-pfa) + "->"+lambda);
 	threshold = mean + lambda * stdDev;
 	setThreshold(threshold, max);	
 	run("Make Binary", "method=Default background=Dark black");	
@@ -183,11 +196,10 @@ function detect2DSpots(channel, size, pfa) {
 	selectImage(id3);close();
 	setThreshold(0.5, 1);
 	run("Make Binary", "method=Default background=Dark black");		
-	
-	
+		
 	// count
-	getStatistics(area, mean, min, max, stdDev);	
-	print("N = " + mean * area / max);
+	n = getValue("RawIntDen") / 255;
+	print("N = " + n);
 	
 	rename("Spot detection");
 	setBatchMode(false);
@@ -218,17 +230,32 @@ function renderSpotImage(img, channel, spot, rendering_spot_size) {
 	resetMinAndMax();	
 }
 
+function overlaySpotImage(img, channel, spot, rendering_spot_size) {
+	selectImage(spot);	
+	setThreshold(128, 255);
+	run("Create Selection");
+	Roi.getContainedPoints(xpoints, ypoints);
+	selectImage(img);
+	Overlay.remove;
+	for (i = 0; i < xpoints.length; i++) {
+		Overlay.drawEllipse(xpoints[i]-rendering_spot_size/2, ypoints[i]-rendering_spot_size/2, rendering_spot_size,rendering_spot_size);
+		Overlay.setPosition(0, 0, 0);
+	}
+	Overlay.show;	
+	resetMinAndMax();	
+}
+
 function generateTestImage() {
 	w = 100;
 	h = 100;
-	d = 100;
+	d = 1;
 	n = 10;
 	newImage("Stack", "8-bit grayscale-mode", w, h, 1, d, 1);
 	for (i = 0; i < n; i++) {
 		x = 10 + round((w-10) * random);
 		y = 10 + round((h-10) * random);
 		z = 10 + Math.ceil((d-10) * random);
-		setSlice(z);
+		//setSlice(z);
 		setPixel(x,y,255);
 	}
 	run("Maximum 3D...", "x=2 y=2 z=2");

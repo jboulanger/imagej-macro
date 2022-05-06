@@ -212,7 +212,8 @@ function icp(X,Y) {
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
-	e0 = 0;		
+	e0 = 0;
+	
 	for (iter = 0; iter < 30; iter++) {		
 		
 		MX = matmul(X,M);		
@@ -230,7 +231,7 @@ function icp(X,Y) {
 		
 		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
 		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break++;}				
-	}	
+	}
 	//MXs = matmul(Xs,M);
 	M = mattranspose(M);	
 	drawMatch(Xs,Yis);
