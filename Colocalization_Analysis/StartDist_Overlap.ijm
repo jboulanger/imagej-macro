@@ -1,6 +1,7 @@
 #@String(label="Channel Names", description="List names of the channels separated by coma (,)",value="Blue,Green,Red") channel_names_str
 #@String(label="ROI colors", description="List colors for overlays separated by coma (,)",value="blue,green,red") roi_colors_str
-#@Integer(label="NUmber of tiles", description="Number of tiles used in startdist segmentation",value=1) ntiles
+#@Integer(label="Number of tiles", description="Number of tiles used in startdist segmentation",value=1) ntiles
+#@Float(label="Min area [um]", description="Minimum area of the selected ROIs",value=20) min_area
 /*
  * Count the number of cell body and their overlap
  * 
@@ -8,8 +9,7 @@
  * - Detect in each image nuclei-like strutures using stardist
  * - Comupute the number of overlapping ROIs 
  * 
- * Need a patch of the original stardist 
- * copy this file to the plugin folder in FIJI:
+ * Need a patch of the original stardist, please copy this file to the plugin folder in FIJI:
  * https://github.com/jboulanger/stardist-imagej/releases/download/0.3.0-noclear/StarDist_-0.3.0.jar
  * 
  * Jerome Boulanger for Elena Garcia 2022
@@ -25,7 +25,7 @@ start_time = getTime();
 setBatchMode("hide");
 channel_names = parseCSVString(channel_names_str);
 roi_color_names = parseCSVString(roi_colors_str);
-processImage(channel_names,roi_color_names);
+processImage(channel_names,roi_color_names,min_area);
 setBatchMode("exit and display");
 print("Finished in " + (getTime - start_time) / 1000 + " seconds.\n");
 
@@ -38,7 +38,7 @@ function parseCSVString(csv) {
 	return items;
 }
 
-function processImage(channel_names,roi_colors_names) {
+function processImage(channel_names,roi_colors_names,area_min) {
 	// process the image slice by slice	
 	id = getImageID();
 	Overlay.remove;
@@ -47,11 +47,11 @@ function processImage(channel_names,roi_colors_names) {
 	if (!isOpen("Overlap")) {Table.create("Overlap");}	
 	for (z = 1; z <= slices; z++) {			
 		print("*** Processing slice " + z + "/" + slices + " ***");
-		processSlice(id, z, channel_names, roi_colors_names);
+		processSlice(id, z, channel_names, roi_colors_names, area_min);
 	}		
 }
 
-function  processSlice(id, z, channel_names, roi_colors_names) {
+function  processSlice(id, z, channel_names, roi_colors_names, area_min) {
 	// process the z slice and report the results in a table
 	closeRoiManager();	
 
@@ -60,7 +60,7 @@ function  processSlice(id, z, channel_names, roi_colors_names) {
 	roi_channels = newArray(); // channel indices of each ROI
 	for (c = 0; c < channel_names.length; c++) {
 		print(" - segment channel " + channel_names[c]);
-		roi = segmentPlane(id, z, c+1);
+		roi = segmentPlane(id, z, c+1, area_min);
 		roi_subset = Array.concat(roi_subset, roi);
 		counts[c] = roi.length;
 		colorRoi(roi, roi_colors_names[c], c+1, z);
@@ -191,8 +191,8 @@ function segmentPlaneLabel(id,z,c) {
 	return rois;	
 }
 
-function segmentPlane(id,z,c) {
-	// output directly the ROI from stardist but startdist clears up the ROI manager (??)
+function segmentPlane(id,z,c,area_min) {
+	// output directly the ROI from stardist
 	selectImage(id);
 	run("Select None");
 	run("Duplicate...", "title=mask duplicate channels="+c+" slices="+z);
@@ -212,7 +212,7 @@ function segmentPlane(id,z,c) {
 	for (i = 0; i < rois.length; i++) {
 		roiManager("select", n0 + i);
 		a = getValue("Area");		
-		if (a > 20) {
+		if (a > area_min) {
 			rois[k] = n0 + i;
 			k++;
 		}
@@ -269,15 +269,6 @@ function segmentPlaneold(z,c,scale,lambda) {
 	n0 = roiManager("count");
 	run("Analyze Particles...", "size="+PI*scale*scale/4+"-Infinity add");	
 	n1 = roiManager("count");	
-	/*
-	for (i = n1-1; i >= n0; i--) {
-		roiManager("select", i);
-		if (getValue("Area") < 10) {
-			roiManager("delete");
-		}
-	}
-	n1 = roiManager("count");
-	*/
 	ids = newArray(n1-n0);
 	for (i = 0; i < ids.length; i++) {
 		ids[i] = n0 + i;
@@ -290,12 +281,18 @@ function segmentPlaneold(z,c,scale,lambda) {
 
 
 function closeRoiManager() {
-	// close the roi manager
-	while (roiManager("count")>0) {roiManager("select", roiManager("count")-1);roiManager("delete");}
+	/* Close the roi manager and empty the ROI first. */
+	while (roiManager("count")>0) {
+		roiManager("select", roiManager("count")-1);
+		roiManager("delete");
+	}
 	closeWindow("ROI Manager");
 }
 
 function closeWindow(name) {
+	/* Close a window if opened
+	 * name : name of the window
+	 */
 	if (isOpen(name)) {
 		selectWindow(name);
 		run("Close");
@@ -303,6 +300,9 @@ function closeWindow(name) {
 }
 
 function colorRoi(ids,color,channel, slice) {
+	/* Color ROI listed in the array ids with the colors and set their position 
+	    with channel and slice.
+	*/
 	for (i = 0; i < ids.length; i++) {
 		roiManager("select", ids[i]);
 		Roi.setStrokeColor(color);
@@ -312,6 +312,7 @@ function colorRoi(ids,color,channel, slice) {
 }
 
 function roi2Overlay(ids,z) {
+	// conver the ROI listed in the array ids to overlay at position z and channel 1
 	for (i = 0; i < ids.length; i++) {
 		roiManager("select", ids[i]);
 		run("Add Selection...");
@@ -323,10 +324,11 @@ function roi2Overlay(ids,z) {
 
 
 function createTestImage() {
+	// create a test image with overlaping filled circles on 5x5 grid
 	w = 500;
 	h = 500;
 	newImage("Test Image", "8-bit composite", w, h, 3 ,1,1);
-	n = 3; // number of line and row 
+	n = 5; // number of line and row 
 	setColor(255);
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < n; j++) {
