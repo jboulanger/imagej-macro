@@ -327,12 +327,15 @@ function parseOrganoidIndex(fname) {
 }
 
 function removeScaleBar(){
-	setThreshold(255, 255);
+	a0 = getValue("Area");
+	setThreshold(255, 255);	
 	run("Create Selection");
-	if (getValue("Area") != getWidth() * getHeight()) {
-		run("Enlarge...", "enlarge=2");
-		run("Median...", "radius=10");
-		run("Select None");
+	if (getValue("Area")!=a0) {
+		if (getValue("Area") != getWidth() * getHeight()) {
+			run("Enlarge...", "enlarge=2");
+			run("Median...", "radius=10");
+			run("Select None");
+		}
 	}
 }
 
