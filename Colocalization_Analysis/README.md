@@ -103,7 +103,7 @@ This macro uses startdist 2D on every channel and planes and compute the overlap
 It requires a specific version of the startdist plugin which does not clear the ROI manager at each run ( https://github.com/jboulanger/stardist-imagej/releases/download/0.3.0-noclear/StarDist_-0.3.0.jar ). You can download the jar can copy it in place of the original file in th eplugin folder.
 
 Open the macro and press run, define the name of the channel which will be used to report the results and the colors of the overlay that will help visualize the segmentation result. Both parameters are a comma separated list of characters:
-![image](https://user-images.githubusercontent.com/3415561/167824587-d88d645a-9bce-455a-865d-951e884cc5c2.png)
+![image](https://user-images.githubusercontent.com/3415561/167827889-749e29ad-278f-4a61-80d3-168c9205972b.png)
 
 The result is a table with a line per slice. If several images are processed the new lines are appended to the table.
 ![image](https://user-images.githubusercontent.com/3415561/167824727-d5c5d09a-cf7a-41a6-b9ae-13f9325ec3ce.png)
