@@ -108,6 +108,9 @@ Open the macro and press run, define the name of the channel which will be used 
 The result is a table with a line per slice. If several images are processed the new lines are appended to the table.
 ![image](https://user-images.githubusercontent.com/3415561/167824727-d5c5d09a-cf7a-41a6-b9ae-13f9325ec3ce.png)
 
+If there is no opened image, a test image is create:
+![image](https://user-images.githubusercontent.com/3415561/167825894-5038eff1-06f7-4861-82a0-56596de69273.png)
+
 Note that the macro does not amke any intensity measurement.
 
 
