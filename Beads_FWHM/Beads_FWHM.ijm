@@ -55,6 +55,7 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 	getPixelSize(unit, pw, ph, pd);	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (matches(unit,"microns")||matches(unit,"µm")||matches(unit,"micron"))	{
+		print("micron unit detected");
 		ps = pw * 1000;
 		zspacing = pd * 1000;
 	} else {
@@ -73,6 +74,7 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		selectWindow("Beads_FWHM.csv");
 		i0 = Table.size;
 	}
+	
 	for (i = 0; i < n; i++) {
     	roiManager("select", i);
     	List.setMeasurements(); 	
@@ -93,15 +95,16 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		Table.set("Y [px]", k, y0);
 		Table.set("Z [px]", k, z0);	
 		Table.set("Pixel size [nm]", k, ps);
+		
 		if (false) {
 			profile = circularAverage(x0,y0,10,L);
 			radius = getRadiusValues(profile.length,ps);	
 			Fit.doFit("Gaussian (no offset)", radius, profile, newArray(1,0,0.21 * wavelength_nm / numerical_aperture * pw));			
 			c = Fit.p(2);
 		} else {
-			vals = circularFit(x0,y0,20,L, 0.21 * wavelength_nm / numerical_aperture,ps);
-			Array.getStatistics(vals, min, max, c, stdDev);
+			vals = circularFit(x0,y0,20,L,0.21*wavelength_nm/numerical_aperture,ps);			
 			Array.getStatistics(vals, cmin, cmax, c, stdDev);
+			c = medianArray(vals);
 		}
 				
 		c = sqrt(c * c - bead_size_nm * bead_size_nm / 16);
@@ -116,8 +119,7 @@ function analyzeSpotsFWHM(system,wavelength_nm,numerical_aperture,bead_size_nm,s
 		Table.set("Abbe [nm]", k, gamma*c/0.514*0.5);		
 		Table.set("Sparrow [nm]", k, gamma*c/0.514*0.47);
 		Table.set("Rayleigh [nm]", k, gamma*c/0.514*0.61);
-		Table.set("Ratio [%]", k, gamma *c / (0.514 * wavelength_nm / numerical_aperture)*100);	
-	
+		Table.set("Ratio [%]", k, gamma *c / (0.514 * wavelength_nm / numerical_aperture)*100);		
 		Table.set("STD XY min [nm]", k, cmin);
 		Table.set("STD XY max [nm]", k, cmax);
 	}
@@ -154,7 +156,7 @@ function circularFit(x0,y0,N,L,s0,ps) {
 	vals = newArray(N);
 	for (i = 0; i < N; i++) {
 		makeLine(x0-L*cos(PI*i/N), y0-L*sin(PI*i/N),x0+L*cos(PI*i/N), y0+L*sin(PI*i/N));		
-		run("Add Selection...");
+		//run("Add Selection...");
 		profile = getProfile();
 		Array.getStatistics(profile, ymin, ymax);
 		for (k = 0; k < profile.length; k++) {
@@ -317,4 +319,9 @@ function generateTestImage(wavelength_nm,numerical_aperture,bead_size_nm) {
 	resetMinAndMax();
 	if (isOpen("Results")) { selectWindow("Results"); run("Close");}
 
+}
+
+function medianArray(a) {
+	p = Array.rankPositions(a);
+	return a[p[round(a.length/2)]];
 }

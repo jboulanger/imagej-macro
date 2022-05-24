@@ -1,6 +1,6 @@
-#@File(label="input file") filename
-#@String(label="delimiter",value="-") del
-#@Boolean(label="Manual segmentation", value=false) manualsegmentation
+#@File(label="Input file") filename
+#@String(label="Delimiter",value="-") del
+#@Boolean(label="manual segmentation", value=false) manualsegmentation
 #@Integer(label="Area min", value=20000) minarea
 #@String(label="Overlay", choices={"Curvature","DNE"},style="listBox") overlaytype
 #@Boolean(label="Display info", value=true) iwantinfo
@@ -23,6 +23,10 @@
  *  - set the minimum area to filter out smaller objects
  *  - tick the last option to save a jpg and close the image
  * 
+ * Note:
+ * - The input filename has the following format [Batch]-[Condition]-[Day]-[OrganoidIndex].extension
+ * - If a roi file is present the roi will be use 
+ * 
  * Output:
  * - Area/size (need to take into account pixel size)
  * - Shape measure (need to implement other methods)
@@ -35,10 +39,12 @@
  * https://arxiv.org/abs/1201.3097
  * 
  * Jerome Boulanger for Ilaria (2020)
+ * 
+ * #@File(label="Weka Segmentation model") wekamodel
  */
 
 //
-//run("Close All");
+run("Close All");
 run("Set Measurements...", "  redirect=None decimal=10");
 closeWindow("ROI Manager");
 
@@ -48,6 +54,9 @@ tbl = "Organoid Morphology";
 n = initTable(tbl);
 processFile(n, folder, fname, tbl);
 wait(500);
+run("Collect Garbage");
+
+
 
 function manualBatchProcess() {
 	// process a folder containing tif files
@@ -87,16 +96,22 @@ function processFile(idx, folder, fname, tblname) {
 	} else {
 		setBatchMode("hide");
 		run("32-bit");
-		segment();
+		id = getImageID();
+		print("segmenting image " + id);
+		segment(id);
 	}
 	
 	removeScaleBar();
 	roiManager("select", 0);
-	Roi.getCoordinates(x, y);
+	//run("Interpolate", "interval=5  smooth adjust");
+	//run("Interpolate", "interval=1  smooth adjust");
+	//Roi.getCoordinates(x, y);
+	Roi.getSplineAnchors(x, y);
 	length = getCurvilinearLength(x,y);
 	
 	// curvature
-	curvature = getContourCurvature(x,y);
+	curvature = getContourCurvatureGeo(x,y);
+	Array.print(curvature);
 	E = log(getWeightedEnergy(curvature,length));
 
 	// Inflection points
@@ -215,19 +230,34 @@ function addColorBar(values) {
 	
 }
 
+function segment(id) {
+	preprocess(id);
+	keepLargestROI();				
+	fitContour(id);
+	roiManager("select", 0);
+	//roiFftSmooth(0.1);
+	roiManager("show none");
+}
 
-function segment() {
-	id = getImageID();
-	run("Duplicate...","title=tmp");
+function preprocess(id) {	
+	/* Preprocess the image (32-bit) and populate the roi manager */
+			
+	selectImage(id);
 	w = getWidth();
 	h = getHeight();
-	run("Size...", "width="+(w/4)+" height="+(h/4)+" depth=1 constrain average interpolation=Bilinear");
+	
+	// smooth the image
+	run("Duplicate...","title=tmp");
+	a = getImageID();
+	run("Size...", "width="+(w/4)+" height="+(h/4)+" depth=1 constrain average interpolation=Bilinear");		
 	for (i = 0; i < 10; i++) {
 		run("Minimum...", "radius=2");
 		run("Maximum...", "radius=2");
 		run("Median...", "radius=2");
 	}
-	a = getImageID();
+	
+	// create a background ans substract it
+	selectImage(a);
 	run("Duplicate...", "title=bg");
 	b = getImageID();
 	for (i=0;i<4;i++) {
@@ -236,20 +266,171 @@ function segment() {
 		run("Minimum...", "radius=" + round(w/32));
 	}
 	run("Gaussian Blur...", "sigma="+w/32);
-	imageCalculator("Subtract",a,b);
-	run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=Bilinear");
+	imageCalculator("Subtract", a, b);
+	
+	// rescale to the original size
+	selectImage(a);
+	run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=Bilinear");	
+	
+	// create ROI
 	setAutoThreshold("Otsu");
 	setOption("BlackBackground", false);
 	run("Convert to Mask");
 	run("Fill Holes");
 	run("Analyze Particles...", "size="+minarea+"-Infinity add");
-	roiManager("select",0);
-	roiFftSmooth(0.1);
-	roiManager("update");
+	
+	// clean up	images
 	selectImage(a);close();
-	selectImage(b);close();
+	selectImage(b);close();	
+	selectImage(id);	
+}
+
+function fitContour(id) {
+	/*Fit the contours of the image id, update the ROI manager*/
+	print(id);
 	selectImage(id);
-	roiManager("show none");
+	run("Select None");
+	run("Duplicate...","title=tmp2");
+	run("32-bit");
+	run("Gaussian Blur...", "sigma=1");
+	run("Median...", "radius=10");	
+	run("Find Edges");
+	id1 = getImageID();
+	
+	initROI();
+	
+	roiManager("select",0);
+	run("Interpolate", "interval="+10+"  smooth adjust");
+	Roi.getSplineAnchors(x, y);	
+	delta=1;
+	for (iter = 0; iter < 200 && delta > 0.1; iter++) {				
+		delta = gradTheCurve(x,y,10+50*exp(-iter/10));	
+		fftSmooth(x,y,0.1);		
+		print("iter:" + iter+" - delta:"+delta);
+	}
+	roiManager("select",0);
+	x = Array.reverse(x);
+	y = Array.reverse(y);
+	Roi.setPolygonSplineAnchors(x, y);	
+	run("Fit Spline");	
+	run("Interpolate", "interval=1 smooth adjust");
+	
+	roiManager("update");
+	selectImage(id1);close();
+	selectImage(id);
+}
+
+
+function initROI() {
+	run("Duplicate...","title=tmp");
+	run("8-bit");
+	roiManager("select",0);
+	run("Enlarge...", "enlarge=-60");
+	run("Enlarge...", "enlarge=30");
+	setColor(0);
+	fill();
+	setThreshold(0, 0);	
+	run("Analyze Particles...", "size=10-Infinity add");
+	roiManager("select", 0);
+	roiManager("delete");
+	keepLargestROI();
+	roiManager("select", 0);
+	roiFftSmooth(1);
+	run("Fit Spline");
+	close();
+}
+
+function keepLargestROI() {
+	n = roiManager("count");
+	amax = 0;
+	istar = -1;
+	for (i = 0; i < n; i++) {
+		roiManager("select",i);
+		a = getValue("Area");
+		if (a > amax) {
+			istar = i;
+			amax = a;
+		}
+	}
+	for (i = n-1; i >= 0; i--) {
+		roiManager("select",i);
+		if (i != istar) {
+			roiManager("delete");
+		}
+	}	
+	roiManager("select",0);
+}
+
+function gradTheCurve(x,y,tmax) {
+	// find the contour
+	dx = diff(x);
+	dy = diff(y);
+	delta = 0; // displacement of the curve
+	K = 4*tmax;
+	for (i = 0; i < x.length; i++) {
+		n = sqrt(dx[i]*dx[i]+dy[i]*dy[i]);
+		swx = 0;
+		sw = 0;
+		for (k = 0; k < K; k++) {
+			t = -tmax + 2 * tmax * k / K;
+			xt = x[i] + t * dy[i] / n;
+			yt = y[i] - t * dx[i] / n;
+			I = getPixel(xt,yt);
+			w = I*exp(-0.5*(t*t)/(tmax*tmax));
+			swx += w * t;
+			sw += w;
+		}
+		if (sw > 0) {
+			tstar = swx / sw;
+			vx = tstar * dy[i] / n;
+			vy = - tstar * dx[i] / n;
+			V = sqrt(vx*vx+vy*vy);
+			x[i] = x[i] + vx;
+			y[i] = y[i] + vy;
+			delta = delta + V;
+		}
+	}	
+	return delta / x.length;
+}
+
+function segmentWeka(model) {	
+	/* Segment the image using a pixel classifier */
+	run("Duplicate...", " ");
+	run("Trainable Weka Segmentation");
+	wait(1000);
+	selectWindow("Trainable Weka Segmentation v3.3.2");
+	call("trainableSegmentation.Weka_Segmentation.loadClassifier", model);
+	call("trainableSegmentation.Weka_Segmentation.getResult");
+	selectWindow("Classified image");
+	selectWindow("Trainable Weka Segmentation v3.3.2");
+	close();
+	selectWindow("Classified image");
+	setThreshold(level-0.1, level+0.1);
+	run("Convert to Mask");
+	
+	run("Analyze Particles...", "size=0-Infinity add");
+	// keep the largest ROI
+	n = roiManager("count");
+	amax = 0;
+	istar = -1
+	for (i = 0; i < n; i++) {
+		roiManager("select",i);
+		a = getValue("Area");
+		if (a > amax) {
+			istar = i;
+			amax = a;
+		}
+	}
+	for (i = n-1; i >= 0; i--) {
+		roiManager("select",i);
+		if (i != istar) {
+			roiManager("delete");
+		}
+	}
+	close();
+	roiManager("select",0);
+	roiFftSmooth(0.1);	
+	selectImage(id0);
 }
 
 function segment_old() {
@@ -342,21 +523,24 @@ function removeScaleBar(){
 function getContourInflectionPoints(curvature) {
 	// return list of index where the curvature is more than 2 time the minor axis.
 	r0 = getValue("Minor");
-	Array.getStatistics(curvature, min, max, mean, stdDev);
-	//print("curvature "+ min + ","+max+","+mean+",",stdDev);
-	//print("1/r0=",1/r0);
-	threshold = 2.0/r0;
-	inflx = findPeaks(curvature, threshold);
+	//tmp = smooth1d(curvature,2);
+	tmp = curvature;
+	Array.getStatistics(tmp, min, max, mean, stdDev);	
+	threshold = mean + 0.5*stdDev;		
+	inflx = findPeaks(tmp, threshold, 10);	
+	
 	xp = newArray(inflx.length);
 	yp = newArray(inflx.length);
 	for (i=0;i<inflx.length;i++){
 		xp[i] = inflx[i];
-		yp[i] = curvature[inflx[i]]; 
+		yp[i] = tmp[inflx[i]]; 
 	}
-	/*
+	
 	id = getImageID();
 	Plot.create("Title", "X","Y");
 	Plot.add("line", Array.getSequence(curvature.length), curvature);
+	Plot.setColor("green");
+	Plot.add("line", Array.getSequence(curvature.length), tmp);	
 	xl = newArray(0,curvature.length-1);
 	yl = newArray(threshold,threshold);
 	Plot.setColor("red");
@@ -364,45 +548,34 @@ function getContourInflectionPoints(curvature) {
 	Plot.add("circle",xp,yp);
 	Plot.update();
 	selectImage(id);
-	*/
+	
 	return inflx;
 }
 
-function findPeaks(A,t) {
-	// find peaks above threshold in array
+function findPeaks(A,t,p) {
+	/* find local maxima in neighborhood [-p,p] above threshold */
 	maximas = newArray(A.length);
 	k = 0;
-	flag = false;
-	maxi = -1e9;
-	idx = -1;
-	for (i = 0; i < A.length; i++) {	
-		if (flag) {
-			if (A[i] > t) {
-				flag = true;
-				if (A[i] > maxi) {
-					maxi = A[i];
-					idx = i;
-				}
-			} else {
-				maximas[k] = idx;
-				flag = false;
-				maxi = -1e9;
-				idx = -1;
-				k = k + 1;
-			}
-		} else {
-			if (A[i] > t) {
-				flag = true;
-				maxi = A[i];
-				idx = i;
-			} else {
-				maxi = 1e-9;
-				flag = false;
+	for (i = 0; i < A.length; i++) if (A[i] > t) {			
+		flag = true;
+		for (j = i-p; j <= i+p && flag; j++) {			
+			if (A[getCircBB(A.length,j)] > A[i]) {
+				flag = false;				
 			}
 		}
-	}
-	maximas = Array.trim(maximas, k);
-	return maximas;
+		if (flag) {
+			maximas[k] = i;
+			k++;
+		}
+	}	
+	return Array.trim(maximas, k);
+}
+
+function getCircBB(n,i) {
+	// index with circular boundary conditions
+	if (i >= 0 && i < n) return i;
+	if (i < 0) return n+i;
+	if (i >=  n) return i-n;
 }
 
 function getCurvilinearLength(x,y) {
@@ -465,7 +638,9 @@ function DND(x,y) {
 function colorContour(x,y,value,width) {
 	// color the contour with value as overlay
 	lut = getLutHexCodes("Ice");
-	Roi.getCoordinates(x, y);
+	//Roi.getCoordinates(x, y);
+	Roi.getSplineAnchors(x, y);
+	
 	if (colorbarmin==0 && colorbarmax==0) {
 		Array.getStatistics(value, colorbarmin, colorbarmax, mean, stdDev);
 		colorbarmin = - maxOf(abs(colorbarmax), abs(colorbarmin));
@@ -510,15 +685,52 @@ function dec2hex(n) {
 	return codes[k1]+codes[k2]; 
 }
 
+function curvHelper(x0,y0,x1,y1,x2,y2) {
+	// Use Heron formula to compute curvature
+	// as the radius of the osculating circle
+	// using a geometric approach
+	//  https://scholar.rose-hulman.edu/cgi/viewcontent.cgi?article=1233&context=rhumj
+	xa = x0-x1;
+	ya = y0-y1;
+	
+	xb = x2-x1;
+	yb = y2-y1;
+	
+	xc = x2-x0;
+	yc = y2-y0;
+	a = sqrt(xa*xa+ya*ya);
+	b = sqrt(xb*xb+yb*yb);
+	c = sqrt(xc*xc+yc*yc);
+	//S = sqrt((a+b+c)*(-a+b+c)*(a-b+c)*(a+b-c)) / 4;
+	//R = a*b*c/(2*S);	
+	Delta = -0.5 * (xa*yb-xb*ya);
+	return 4 * Delta * (a*b*c);
+	
+}
+
+function getContourCurvatureGeo(x,y) {
+	// Compute cuvature with periodic boundary conditionsusing a geometric method
+	n = x.length;
+	kappa = newArray(n);
+	for (i = 0; i < n; i++) {
+		ip = getCircBB(n,i-3);
+		in = getCircBB(n,i+3);		
+		kappa[i] = curvHelper(x[ip],y[ip],x[i],y[i],x[in],y[in]);		
+	}
+	return kappa;
+}
+
 function getContourCurvature(x,y) {
-	// Compute cuvature with periodic boundary conditions
+	// Compute cuvature with periodic boundary conditions	
+	//x = smooth1d(x,2);
+	//y = smooth1d(y,2);
 	n = x.length;
 	gamma = newArray(n);
 	for (i = 1; i < n-1; i++) {
-		dx = x[i+1] - x[i-1];
-		dy = y[i+1] - y[i-1];
-		dxx = - x[i-1] + 2 * x[i] - x[i+1];
-		dyy = - y[i-1] + 2 * y[i] - y[i+1];
+		dx = (x[i+1] - x[i-1])/2;
+		dy = (y[i+1] - y[i-1])/2;
+		dxx = x[i-1] - 2 * x[i] + x[i+1];
+		dyy = y[i-1] - 2 * y[i] + y[i+1];
 		gamma[i] = (dx * dyy - dy * dxx) / pow(dx*dx + dy*dy, 3.0/2.0);
 	}
 	// at 0 with perdiodic bc
@@ -535,6 +747,7 @@ function getContourCurvature(x,y) {
 	gamma[n-1] = (dx * dyy - dy * dxx) / pow(dx*dx + dy*dy, 3.0/2.0);
 	return gamma;
 }
+
 
 function diff(u) {
 	n = u.length;
@@ -732,14 +945,13 @@ function separate(a, p, n) {
 
 function smooth1d(src,k) {
 	n = src.length;
-	dst = newArray(n);
-	Array.getStatistics(src, min, max);
+	dst = newArray(n);	
 	for (i = 0; i < n; i++) {
 		sum = 0;
 		count = 0;
 		for (j = i-k; j <= i+k; j++) {
 			if (j >= 0 && j < n) {
-				sum =  sum + src[i];
+				sum =  sum + src[j];
 				count = count + 1;
 			}
 		}

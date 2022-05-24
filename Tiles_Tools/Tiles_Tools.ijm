@@ -476,13 +476,13 @@ function correct_illumination() {
 	run("Macro...", "code=v=0.1+0.9*(v-"+min+")/("+max+"-"+min+") stack");	
 	m = getImageID();
 	
-	selectImage(m);
-	run("Duplicate...", "title=b");
+	selectImage(y);
+	run("Z Project...", "projection=[Min Intensity]");
 	run("32-bit");
-	setColor(0.0);
-	fill();	
-	b = getImageID();	
-
+	rename("b");
+	run("Gaussian Blur...", "sigma=10");
+	b = getImageID();
+	
 	imageCalculator("Subtract create 32-bit stack", y, b); rename("x"); x = getImageID(); 
 	imageCalculator("Divide stack", x, m);	
 	run("Min...", "value=0.01 stack");
@@ -510,6 +510,7 @@ function correct_illumination() {
 		imageCalculator("Multiply", x, tmp);
 		selectImage(tmp); close();		
 	}	
+	
 	selectImage(x);
 	rename("Corrected");
 	setBatchMode(false);
