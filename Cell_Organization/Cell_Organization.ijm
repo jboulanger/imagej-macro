@@ -522,6 +522,7 @@ function measureROIStats(id, dist, rois, objects, obj_channel, condition_name, c
 					Stack.setChannel(c);
 					roiManager("select", objects[i]);
 					Table.set("Mean "+channel_names[c-1], row_index, getValue("Mean"));
+					Table.set("Sum "+channel_names[c-1], row_index, getValue("RawIntDen"));
 				}
 				// Measure in object channel
 				roiManager("select", objects[i]);
