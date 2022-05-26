@@ -5,9 +5,10 @@
 #@String(label="Overlay", choices={"Curvature","DNE"},style="listBox") overlaytype
 #@Boolean(label="Display info", value=true) iwantinfo
 #@Boolean(label="Add colorbar", value=true) iwantcolorbar
-#@Float(label="DNE colorbar min", value = 0) colorbarmin
-#@Float(label="DNE colorbar max", value = 0) colorbarmax
+#@Float(label="Colorbar min", value = 0) colorbarmin
+#@Float(label="Colorbar max", value = 0) colorbarmax
 #@Boolean(label="Save image as jpg and close", value=true) finalclear
+#@Boolean(label="Save ROI", value=true) saveroi
 #@Float(label="Marker scale", value=4) markerscale
 
 /*
@@ -86,6 +87,9 @@ function processFile(idx, folder, fname, tblname) {
 	print("Processing " + fname);
 	open(folder + File.separator + fname);
 	id = getImageID();
+	
+	getPixelSize(unit, pixel_size, pixel_size);
+	
 	if (manualsegmentation) {
 		setTool("freehand");
 		waitForUser("Please draw the outline of the organoid");
@@ -109,9 +113,11 @@ function processFile(idx, folder, fname, tblname) {
 	Roi.getSplineAnchors(x, y);
 	length = getCurvilinearLength(x,y);
 	
+	// average rdius
+	R0 = getAverageRadius(x,y,pixel_size);
+	
 	// curvature
-	curvature = getContourCurvatureGeo(x,y);
-	Array.print(curvature);
+	curvature = getContourCurvatureGeo(x,y,pixel_size);	
 	E = log(getWeightedEnergy(curvature,length));
 
 	// Inflection points
@@ -128,7 +134,50 @@ function processFile(idx, folder, fname, tblname) {
 	// Transparency
 	T = transparency();
 
-	// Overlays
+	I0 = measureIntensityOutside(id);
+	
+		
+	// close();
+	
+	//selectWindow(tblname);
+	selectImage(id);
+	roiManager("select", 0);
+	Table.set("Batch", idx, parseBatchNumber(fname));
+ 	Table.set("Condition", idx, cond);
+ 	Table.set("Day", idx, parseDay(fname));
+ 	Table.set("Organoid", idx, parseOrganoidIndex(fname));
+ 	Table.set("Pixel size ["+unit+"]", idx, pixel_size);
+ 	
+ 	Table.set("Area", idx, getValue("Area"));
+ 	Table.set("Perimeter",idx,getValue("Perim."));
+ 	Table.set("Average radius", idx, R0);
+ 	Table.set("Roundness", idx, getValue("Round"));
+ 	Table.set("Aspect Ratio", idx, getValue("AR"));
+ 	Table.set("Feret", idx, getValue("Feret"));
+ 	Table.set("MinFeret", idx, getValue("MinFeret"));
+ 	Table.set("Minor", idx, getValue("Minor"));
+ 	Table.set("Major", idx, getValue("Major"));
+ 	Table.set("Circularity", idx, 100*getValue("Circ."));
+ 	Table.set("Inflections Points", idx, K);
+ 	Table.set("Average curvature", idx, E);
+ 	Table.set("DNE", idx, DNE);
+ 	Table.set("Fractal Dimension", idx, D);
+ 	Table.set("Mean Intensity", idx, getValue("Mean"));
+ 	Table.set("StdDev Intensity.", idx, getValue("StdDev"));
+ 	Table.set("Transparency", idx, T); 	
+ 	Array.getStatistics(dnd, min, max, mean, stdDev);
+ 	Table.set("Min DND", idx, min);
+ 	Table.set("Max DND", idx, max);
+ 	Array.getStatistics(curvature, min, max, mean, stdDev);
+ 	Table.set("Min curvature", idx, min);
+ 	Table.set("Max curvature", idx, max);
+ 	Table.set("Mean curvature", idx, mean);
+ 	Table.set("Std curvature", idx, stdDev);
+ 	
+ 	Table.set("Intensity outside", idx, I0);
+ 	 	 
+ 	roiManager("select", 0);
+ 	// Overlays
 	if (matches(overlaytype,"DNE")) {
 		colorContour(x,y,dnd,markerscale);
 		if (iwantcolorbar) {
@@ -156,33 +205,8 @@ function processFile(idx, folder, fname, tblname) {
 		Overlay.drawString("TRANSPARENCY: "+round(T)+"\nCURVATURE: "+E+"\nDNE: "+DNE+"\nINFLECTION POINTS: "+K+"\nFRACTAL DIM: "+D, 0, 30);
 		Overlay.show;
 	}
-	
-	// close();
-	//selectWindow(tblname);
-	selectImage(id);
-	roiManager("select", 0);
-	Table.set("Batch", idx, parseBatchNumber(fname));
- 	Table.set("Condition", idx, cond);
- 	Table.set("Day", idx, parseDay(fname));
- 	Table.set("Organoid", idx, parseOrganoidIndex(fname));
- 	Table.set("Area", idx, getValue("Area"));
- 	Table.set("Perimeter",idx,getValue("Perim."));
- 	Table.set("Circularity", idx, 100*getValue("Circ."));
- 	Table.set("Inflections Points", idx, K);
- 	Table.set("Curv.", idx, E);
- 	Table.set("DNE", idx, DNE);
- 	Table.set("Fractal Dimension", idx, D);
- 	Table.set("Mean Int.", idx, getValue("Mean"));
- 	Table.set("StdDev Int.", idx, getValue("StdDev"));
- 	Table.set("Transparency", idx, T);
- 	Array.getStatistics(dnd, min, max, mean, stdDev);
- 	Table.set("Min DND", idx, min);
- 	Table.set("Max DND", idx, max);
- 	Array.getStatistics(curvature, min, max, mean, stdDev);
- 	Table.set("Min curvature", idx, min);
- 	Table.set("Max curvature", idx, max);
  	
- 	if (isOpen("ROI Manager")) { selectWindow("ROI Manager"); run("Close"); }
+ 	
  	selectImage(id);
  	run("Select None");
  	if (finalclear) { 
@@ -191,7 +215,16 @@ function processFile(idx, folder, fname, tblname) {
  		saveAs("Jpeg", ofilename);
  		close(); 
  	}
- 	//run("Restore Selection");
+ 	
+ 	if (saveroi) {
+ 		ofilename = replace(folder+File.separator+fname,".tif",".roi");
+ 		print("Saving file " + ofilename);
+ 		roiManager("select", 0);
+ 		roiManager("Save", ofilename);
+ 	}
+ 	
+ 	run("Select None");
+ 	if (isOpen("ROI Manager")) { selectWindow("ROI Manager"); run("Close"); } 	
  	
  	setBatchMode("exit and display");
 }
@@ -286,8 +319,7 @@ function preprocess(id) {
 }
 
 function fitContour(id) {
-	/*Fit the contours of the image id, update the ROI manager*/
-	print(id);
+	/*Fit the contours of the image id, update the ROI manager*/	
 	selectImage(id);
 	run("Select None");
 	run("Duplicate...","title=tmp2");
@@ -306,7 +338,7 @@ function fitContour(id) {
 	for (iter = 0; iter < 200 && delta > 0.1; iter++) {				
 		delta = gradTheCurve(x,y,10+50*exp(-iter/10));	
 		fftSmooth(x,y,0.1);		
-		print("iter:" + iter+" - delta:"+delta);
+		//print("iter:" + iter+" - delta:"+delta);
 	}
 	roiManager("select",0);
 	x = Array.reverse(x);
@@ -341,6 +373,7 @@ function initROI() {
 }
 
 function keepLargestROI() {
+	/* keep the largest ROI from the ROI manager */
 	n = roiManager("count");
 	amax = 0;
 	istar = -1;
@@ -475,6 +508,21 @@ function substractBackground() {
 	run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=Bilinear");
 }
 
+function measureIntensityOutside(id) {
+	/* Measure intensity outside the organoid
+	Use a simple threshold to discard the darker organoid and shrink the selection
+	to avoid taking into account regions from inside the organoid. return the mean intensity
+	*/
+	selectImage(id);	
+	setAutoThreshold("Minimum dark");
+	run("Create Selection");
+	run("Enlarge...", "enlarge=-50");
+	val = getValue("Mean");
+	run("Select None");	
+	resetThreshold;
+	return val;
+}
+
 function transparency() {
 	// Measure the transparency as the Mean of a filtered image
 	run("Duplicate...", " ");
@@ -528,7 +576,7 @@ function getContourInflectionPoints(curvature) {
 	Array.getStatistics(tmp, min, max, mean, stdDev);	
 	threshold = mean + 0.5*stdDev;		
 	inflx = findPeaks(tmp, threshold, 10);	
-	
+	/*
 	xp = newArray(inflx.length);
 	yp = newArray(inflx.length);
 	for (i=0;i<inflx.length;i++){
@@ -548,7 +596,7 @@ function getContourInflectionPoints(curvature) {
 	Plot.add("circle",xp,yp);
 	Plot.update();
 	selectImage(id);
-	
+	*/
 	return inflx;
 }
 
@@ -685,6 +733,27 @@ function dec2hex(n) {
 	return codes[k1]+codes[k2]; 
 }
 
+
+function getAverageRadius(x,y,pixel_size) {
+	/* compute the average radius of the polygone defined by x,y */
+	n = x.length;
+	xbar = 0;
+	ybar = 0;
+	for (i = 0; i < n; i++) {
+		xbar += x[i];
+		ybar += y[i];
+	}
+	xbar /= n;
+	ybar /= n;
+	r = 0;
+	for (i = 0; i < n; i++) {
+		dx = x[i]-xbar;
+		dy = y[i]-ybar;
+		r += sqrt(dx*dx+dy*dy);
+	}		
+	return r/n * pixel_size;
+}
+
 function curvHelper(x0,y0,x1,y1,x2,y2) {
 	// Use Heron formula to compute curvature
 	// as the radius of the osculating circle
@@ -708,14 +777,14 @@ function curvHelper(x0,y0,x1,y1,x2,y2) {
 	
 }
 
-function getContourCurvatureGeo(x,y) {
+function getContourCurvatureGeo(x,y,pixel_size) {
 	// Compute cuvature with periodic boundary conditionsusing a geometric method
 	n = x.length;
 	kappa = newArray(n);
 	for (i = 0; i < n; i++) {
 		ip = getCircBB(n,i-3);
 		in = getCircBB(n,i+3);		
-		kappa[i] = curvHelper(x[ip],y[ip],x[i],y[i],x[in],y[in]);		
+		kappa[i] = curvHelper(x[ip],y[ip],x[i],y[i],x[in],y[in]) / pixel_size;		
 	}
 	return kappa;
 }
