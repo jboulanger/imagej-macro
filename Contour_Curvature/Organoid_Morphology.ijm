@@ -337,7 +337,7 @@ function fitContour(id) {
 	delta=1;
 	for (iter = 0; iter < 200 && delta > 0.1; iter++) {				
 		delta = gradTheCurve(x,y,10+50*exp(-iter/10));	
-		fftSmooth(x,y,0.1);		
+		fftSmooth(x,y,0.5);		
 		//print("iter:" + iter+" - delta:"+delta);
 	}
 	roiManager("select",0);
@@ -357,7 +357,7 @@ function initROI() {
 	run("Duplicate...","title=tmp");
 	run("8-bit");
 	roiManager("select",0);
-	run("Enlarge...", "enlarge=-60");
+	run("Enlarge...", "enlarge=-80");
 	run("Enlarge...", "enlarge=30");
 	setColor(0);
 	fill();
