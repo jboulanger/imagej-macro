@@ -1,14 +1,14 @@
 #@File(label="Input file") filename
 #@String(label="Delimiter",value="-") del
 #@Boolean(label="manual segmentation", value=false) manualsegmentation
-#@Integer(label="Area min", value=20000) minarea
 #@String(label="Overlay", choices={"Curvature","DNE"},style="listBox") overlaytype
 #@Boolean(label="Display info", value=true) iwantinfo
 #@Boolean(label="Add colorbar", value=true) iwantcolorbar
-#@Float(label="Colorbar min", value = 0) colorbarmin
-#@Float(label="Colorbar max", value = 0) colorbarmax
+#@Float(label="Colorbar min", value = -0.05) colorbarmin
+#@Float(label="Colorbar max", value = 0.05) colorbarmax
 #@Boolean(label="Save image as jpg and close", value=true) finalclear
 #@Boolean(label="Save ROI", value=true) saveroi
+#@Boolean(label="Used saved ROI", value=false) useSavedROI
 #@Float(label="Marker scale", value=4) markerscale
 
 /*
@@ -45,19 +45,19 @@
  */
 
 //
-run("Close All");
-run("Set Measurements...", "  redirect=None decimal=10");
-closeWindow("ROI Manager");
-
-folder = File.getDirectory(filename);
-fname = File.getName(filename);
-tbl = "Organoid Morphology";
-n = initTable(tbl);
-processFile(n, folder, fname, tbl);
-wait(500);
-run("Collect Garbage");
-
-
+if (endsWith(filename,".tif")) {
+	run("Close All");
+	run("Set Measurements...", "  redirect=None decimal=10");
+	closeWindow("ROI Manager");
+	
+	folder = File.getDirectory(filename);
+	fname = File.getName(filename);
+	tbl = "Organoid Morphology";
+	n = initTable(tbl);
+	processFile(n, folder, fname, tbl);
+	wait(500);
+	run("Collect Garbage");
+}
 
 function manualBatchProcess() {
 	// process a folder containing tif files
@@ -83,36 +83,46 @@ function initTable(tblname) {
 
 function processFile(idx, folder, fname, tblname) {
 	// open and process file
+	setBatchMode("hide");
 	cond = parseConditionName(fname);
 	print("Processing " + fname);
+	roifilename = replace(folder+File.separator+fname,".tif",".roi");
+	
 	open(folder + File.separator + fname);
 	id = getImageID();
 	
 	getPixelSize(unit, pixel_size, pixel_size);
 	
-	if (manualsegmentation) {
-		setTool("freehand");
-		waitForUser("Please draw the outline of the organoid");
-		setBatchMode("hide");
-		roiFftSmooth(0.1);
-		roiManager("add");
-		run("32-bit");
-	} else {
-		setBatchMode("hide");
-		run("32-bit");
-		id = getImageID();
-		print("segmenting image " + id);
-		segment(id);
+	if (useSavedROI && File.exists(roifilename)) {
+		roiManager("Open", roifilename);
+	} else {	
+		if (manualsegmentation) {
+			setTool("freehand");
+			setBatchMode("exit and display");
+			waitForUser("Please draw the outline of the organoid");
+			setBatchMode("hide");
+			roiFftSmooth(0.1);
+			roiManager("add");
+			run("32-bit");
+		} else {		
+			run("32-bit");
+			id = getImageID();
+			print("segmenting image " + id);
+			segment(id);
+		}
 	}
+		
+	//removeScaleBar();
 	
-	removeScaleBar();
-	roiManager("select", 0);
-	//run("Interpolate", "interval=5  smooth adjust");
-	//run("Interpolate", "interval=1  smooth adjust");
-	//Roi.getCoordinates(x, y);
+	
+	// Compute curvature
+	roiManager("select", 0);	
 	Roi.getSplineAnchors(x, y);
-	length = getCurvilinearLength(x,y);
+	run("Select None");
 	
+	
+	length = getCurvilinearLength(x,y);
+		
 	// average rdius
 	R0 = getAverageRadius(x,y,pixel_size);
 	
@@ -121,7 +131,7 @@ function processFile(idx, folder, fname, tblname) {
 	E = log(getWeightedEnergy(curvature,length));
 
 	// Inflection points
-	inflex = getContourInflectionPoints(curvature);
+	inflex = getContourInflectionPoints(curvature, R0);
 	K = inflex.length;
 
 	// Dirichlet normal energy
@@ -129,16 +139,13 @@ function processFile(idx, folder, fname, tblname) {
 	DNE = log(getWeightedEnergy(dnd,length));
 	
 	// Fractal dimension
-	D = roiFractalDimension(false);
+	D = roiFractalDimension(x,y,false);
 	
 	// Transparency
 	T = transparency();
 
 	I0 = measureIntensityOutside(id);
-	
 		
-	// close();
-	
 	//selectWindow(tblname);
 	selectImage(id);
 	roiManager("select", 0);
@@ -168,15 +175,15 @@ function processFile(idx, folder, fname, tblname) {
  	Array.getStatistics(dnd, min, max, mean, stdDev);
  	Table.set("Min DND", idx, min);
  	Table.set("Max DND", idx, max);
- 	Array.getStatistics(curvature, min, max, mean, stdDev);
- 	Table.set("Min curvature", idx, min);
- 	Table.set("Max curvature", idx, max);
- 	Table.set("Mean curvature", idx, mean);
- 	Table.set("Std curvature", idx, stdDev);
- 	
+ 	Array.getStatistics(curvature, Cmin, Cmax, Cmean, Cstd);
+ 	Table.set("Min curvature", idx, Cmin);
+ 	Table.set("Max curvature", idx, Cmax);
+ 	Table.set("Mean curvature", idx, Cmean);
+ 	Table.set("Std curvature", idx, Cstd); 	
  	Table.set("Intensity outside", idx, I0);
  	 	 
- 	roiManager("select", 0);
+ 	//roiManager("select", 0);
+ 	run("Select None");
  	// Overlays
 	if (matches(overlaytype,"DNE")) {
 		colorContour(x,y,dnd,markerscale);
@@ -190,6 +197,7 @@ function processFile(idx, folder, fname, tblname) {
 		}
 	}
 	
+	print("there are " + roiManager("count") + " rois");
 	// drawing the inflection poinrs as red circles
 	setColor("red");
 	for (i = 0; i < K; i++) {
@@ -202,30 +210,31 @@ function processFile(idx, folder, fname, tblname) {
 	if (iwantinfo) {
 		setColor("black");
 		setFont("Fixed", 30, "bold");
-		Overlay.drawString("TRANSPARENCY: "+round(T)+"\nCURVATURE: "+E+"\nDNE: "+DNE+"\nINFLECTION POINTS: "+K+"\nFRACTAL DIM: "+D, 0, 30);
+		Overlay.drawString("TRANSPARENCY: "+round(T)+"\nCURVATURE: "+R0*Cstd+"\nINFLECTION POINTS: "+K+"\nRADIUS:"+R0, 0, 30);
+		//Overlay.drawString("TRANSPARENCY: "+round(T)+"\nCURVATURE: "+E+"\nDNE: "+DNE+"\nINFLECTION POINTS: "+K+"\nFRACTAL DIM: "+D, 0, 30);
 		Overlay.show;
 	}
- 	
- 	
+ 	 	
  	selectImage(id);
  	run("Select None");
  	if (finalclear) { 
  		ofilename = replace(folder+File.separator+fname,".tif",".jpg");
- 		print("Saving file " + ofilename);
+ 		print("Saving file \n" + ofilename);
  		saveAs("Jpeg", ofilename);
  		close(); 
  	}
- 	
- 	if (saveroi) {
- 		ofilename = replace(folder+File.separator+fname,".tif",".roi");
- 		print("Saving file " + ofilename);
+ 	print("there are " + roiManager("count") + " rois");
+ 	if (saveroi && roiManager("count") == 1) {  		
+ 		print("Saving file \n" + roifilename);
  		roiManager("select", 0);
- 		roiManager("Save", ofilename);
+ 		roiManager("Save", roifilename);
+ 	} else {
+ 		print("There are more than one ROI.. cannot save it as .roi file.");
  	}
- 	
+ 	 	
  	run("Select None");
- 	if (isOpen("ROI Manager")) { selectWindow("ROI Manager"); run("Close"); } 	
- 	
+ 	closeRoiManager();
+ 	run("Select None");
  	setBatchMode("exit and display");
 }
 
@@ -264,12 +273,13 @@ function addColorBar(values) {
 }
 
 function segment(id) {
-	preprocess(id);
-	keepLargestROI();				
+	preprocess(id);	
+	keepLargestROI();	
 	fitContour(id);
-	roiManager("select", 0);
+	//roiManager("select", 0);
 	//roiFftSmooth(0.1);
 	roiManager("show none");
+	run("Select None");
 }
 
 function preprocess(id) {	
@@ -310,8 +320,8 @@ function preprocess(id) {
 	setOption("BlackBackground", false);
 	run("Convert to Mask");
 	run("Fill Holes");
-	run("Analyze Particles...", "size="+minarea+"-Infinity add");
-	
+	run("Analyze Particles...", "size=0-Infinity add");
+	run("Select None");
 	// clean up	images
 	selectImage(a);close();
 	selectImage(b);close();	
@@ -321,42 +331,53 @@ function preprocess(id) {
 function fitContour(id) {
 	/*Fit the contours of the image id, update the ROI manager*/	
 	selectImage(id);
+	// create a contour image	
 	run("Select None");
 	run("Duplicate...","title=tmp2");
 	run("32-bit");
 	run("Gaussian Blur...", "sigma=1");
-	run("Median...", "radius=10");	
+	run("Median...", "radius=5");
+	run("Gaussian Blur...", "sigma=1");
 	run("Find Edges");
 	id1 = getImageID();
 	
-	initROI();
+	initROI(id);
 	
+	
+	selectImage(id1);
 	roiManager("select",0);
 	run("Interpolate", "interval="+10+"  smooth adjust");
 	Roi.getSplineAnchors(x, y);	
 	delta=1;
-	for (iter = 0; iter < 200 && delta > 0.1; iter++) {				
+	showStatus("Optimizing contour");
+	niter = 200;
+	for (iter = 0; iter < niter && delta > 0.1; iter++) {
+		showProgress(iter, niter);
 		delta = gradTheCurve(x,y,10+50*exp(-iter/10));	
-		fftSmooth(x,y,0.5);		
-		//print("iter:" + iter+" - delta:"+delta);
+		fftSmooth(x,y,1);				
 	}
 	roiManager("select",0);
 	x = Array.reverse(x);
 	y = Array.reverse(y);
-	Roi.setPolygonSplineAnchors(x, y);	
-	run("Fit Spline");	
-	run("Interpolate", "interval=1 smooth adjust");
-	
+	Roi.setPolygonSplineAnchors(x, y);		
 	roiManager("update");
 	selectImage(id1);close();
 	selectImage(id);
+	run("Select None");
+	
 }
 
-
-function initROI() {
-	run("Duplicate...","title=tmp");
-	run("8-bit");
-	roiManager("select",0);
+function initROI(id) {	
+	/* erode the roi and select the biggest resulting region*/
+	selectImage(id);
+	run("Select None");
+	run("Duplicate...","title=tmp");	
+	run("8-bit");	
+	run("Select All");
+	setColor(255);
+	fill();	
+	id2 = getImageID();
+	roiManager("select",0);		
 	run("Enlarge...", "enlarge=-80");
 	run("Enlarge...", "enlarge=30");
 	setColor(0);
@@ -366,15 +387,17 @@ function initROI() {
 	roiManager("select", 0);
 	roiManager("delete");
 	keepLargestROI();
-	roiManager("select", 0);
-	roiFftSmooth(1);
-	run("Fit Spline");
-	close();
+	roiManager("select", 0);	
+	roiManager("update");
+	run("Select None");
+	selectImage(id2); close();	
+	run("Select None");
 }
 
 function keepLargestROI() {
 	/* keep the largest ROI from the ROI manager */
 	n = roiManager("count");
+	run("Select None");
 	amax = 0;
 	istar = -1;
 	for (i = 0; i < n; i++) {
@@ -385,13 +408,14 @@ function keepLargestROI() {
 			amax = a;
 		}
 	}
-	for (i = n-1; i >= 0; i--) {
-		roiManager("select",i);
+	for (i = n-1; i >= 0; i--) {		
 		if (i != istar) {
+			roiManager("select",i);
 			roiManager("delete");
 		}
 	}	
 	roiManager("select",0);
+	
 }
 
 function gradTheCurve(x,y,tmax) {
@@ -488,7 +512,7 @@ function segment_old() {
 	run("Convert to Mask");
 	run("Fill Holes");
 	//makeOval(getWidth/8, getHeight()/8, 6/8*getWidth(), 6/8*getHeight());
-	run("Analyze Particles...", "size="+minarea+"-Infinity add");
+	run("Analyze Particles...", "size=0-Infinity add");
 	roiManager("select",0);
 	roiFftSmooth(0.1);
 	roiManager("update");
@@ -568,14 +592,15 @@ function removeScaleBar(){
 	}
 }
 
-function getContourInflectionPoints(curvature) {
+function getContourInflectionPoints(curvature,r0) {
 	// return list of index where the curvature is more than 2 time the minor axis.
-	r0 = getValue("Minor");
+	//r0 = getValue("Major");
 	//tmp = smooth1d(curvature,2);
 	tmp = curvature;
-	Array.getStatistics(tmp, min, max, mean, stdDev);	
-	threshold = mean + 0.5*stdDev;		
+	//Array.getStatistics(tmp, min, max, mean, stdDev);	
+	threshold = 0.5/r0;//mean + 0.5*stdDev;		
 	inflx = findPeaks(tmp, threshold, 10);	
+	
 	/*
 	xp = newArray(inflx.length);
 	yp = newArray(inflx.length);
@@ -685,10 +710,9 @@ function DND(x,y) {
 
 function colorContour(x,y,value,width) {
 	// color the contour with value as overlay
-	lut = getLutHexCodes("Ice");
+	lut = getLutHexCodes("Ice");	
 	//Roi.getCoordinates(x, y);
-	Roi.getSplineAnchors(x, y);
-	
+	//Roi.getSplineAnchors(x, y);	
 	if (colorbarmin==0 && colorbarmax==0) {
 		Array.getStatistics(value, colorbarmin, colorbarmax, mean, stdDev);
 		colorbarmin = - maxOf(abs(colorbarmax), abs(colorbarmin));
@@ -709,6 +733,7 @@ function colorContour(x,y,value,width) {
 	setColor(lut[cidx]);
 	Overlay.drawLine(x[x.length-1], y[y.length-1], x[0], y[0]);
 	Overlay.show;
+	run("Labels...", "color=white font=12");
 }
 
 function getLutHexCodes(name) {
@@ -754,40 +779,42 @@ function getAverageRadius(x,y,pixel_size) {
 	return r/n * pixel_size;
 }
 
-function curvHelper(x0,y0,x1,y1,x2,y2) {
-	// Use Heron formula to compute curvature
-	// as the radius of the osculating circle
-	// using a geometric approach
-	//  https://scholar.rose-hulman.edu/cgi/viewcontent.cgi?article=1233&context=rhumj
-	xa = x0-x1;
-	ya = y0-y1;
-	
-	xb = x2-x1;
-	yb = y2-y1;
-	
-	xc = x2-x0;
-	yc = y2-y0;
-	a = sqrt(xa*xa+ya*ya);
-	b = sqrt(xb*xb+yb*yb);
-	c = sqrt(xc*xc+yc*yc);
-	//S = sqrt((a+b+c)*(-a+b+c)*(a-b+c)*(a+b-c)) / 4;
-	//R = a*b*c/(2*S);	
-	Delta = -0.5 * (xa*yb-xb*ya);
-	return 4 * Delta * (a*b*c);
-	
-}
-
 function getContourCurvatureGeo(x,y,pixel_size) {
 	// Compute cuvature with periodic boundary conditionsusing a geometric method
 	n = x.length;
 	kappa = newArray(n);
 	for (i = 0; i < n; i++) {
-		ip = getCircBB(n,i-3);
-		in = getCircBB(n,i+3);		
+		ip = getCircBB(n,i-1);
+		in = getCircBB(n,i+1);		
 		kappa[i] = curvHelper(x[ip],y[ip],x[i],y[i],x[in],y[in]) / pixel_size;		
 	}
 	return kappa;
 }
+
+function curvHelper(x0,y0,x1,y1,x2,y2) {
+	// Use Heron formula to compute curvature
+	// as the radius of the osculating circle
+	// using a geometric approach
+	//  https://scholar.rose-hulman.edu/cgi/viewcontent.cgi?article=1233&context=rhumj
+	xa = x0 - x1;
+	ya = y0 - y1;
+	
+	xb = x2 - x1;
+	yb = y2 - y1;
+	
+	xc = x2 - x0;
+	yc = y2 - y0;
+	
+	a = sqrt(xa*xa+ya*ya);
+	b = sqrt(xb*xb+yb*yb);
+	c = sqrt(xc*xc+yc*yc);
+	//S = sqrt((a+b+c)*(-a+b+c)*(a-b+c)*(a+b-c)) / 4;
+	//R = a*b*c/(2*S);	
+	Delta = (xb*ya-xa*yb) / 2.0;
+	Kappa = 4.0 * Delta / (a*b*c);
+	return Kappa;	
+}
+
 
 function getContourCurvature(x,y) {
 	// Compute cuvature with periodic boundary conditions	
@@ -839,12 +866,12 @@ function diff2(u) {
 	return d; 
 }
 
-function roiFractalDimension(doplot) {
+function roiFractalDimension(x,y,doplot) {
 	// Compute the fractal dimension of the contour
 	// should be between 1 and 2..
 	// https://arxiv.org/abs/1201.3097
-	run("Interpolate", "interval=1");
-	Roi.getCoordinates(x, y);	
+	//run("Interpolate", "interval=1");
+	//Roi.getCoordinates(x, y);	
 	if (x.length > 10) {	
 		if (0) {
 		Array.getStatistics(x, xmin, xmax, xmean, xstdDev);
@@ -1011,23 +1038,30 @@ function separate(a, p, n) {
 }
 
 /*** END oF FFT **/
-
-function smooth1d(src,k) {
+function smooth1d(src,sigma) {
 	n = src.length;
 	dst = newArray(n);	
+	k = Math.ceil(3*sigma);
 	for (i = 0; i < n; i++) {
 		sum = 0;
 		count = 0;
 		for (j = i-k; j <= i+k; j++) {
-			if (j >= 0 && j < n) {
-				sum =  sum + src[j];
-				count = count + 1;
-			}
+			d = (i-j)/sigma;
+			w = exp(-0.5*d*d);
+			sum =  sum + w * src[getCircBB(n,j)];
+			count = count + w;			
 		}
 		dst[i] = sum / count;
 	}
 	return dst;
 }
+
+function closeRoiManager() {
+	while (roiManager("count")>0) {roiManager("select", roiManager("count")-1);roiManager("delete");}
+	closeWindow("ROI Manager");
+	run("Select None");
+}
+
 
 function closeWindow(name){
 	if (isOpen(name)){
