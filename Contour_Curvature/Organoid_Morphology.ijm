@@ -57,6 +57,9 @@ if (endsWith(filename,".tif")) {
 	processFile(n, folder, fname, tbl);
 	wait(500);
 	run("Collect Garbage");
+} else {
+	print(filename);
+	print("Not a tif file, skip");	
 }
 
 function manualBatchProcess() {
@@ -95,13 +98,22 @@ function processFile(idx, folder, fname, tblname) {
 	
 	if (useSavedROI && File.exists(roifilename)) {
 		roiManager("Open", roifilename);
+		/*if (manualsegmentation) {
+			roiManager("select", 0);
+			run("Fit Spline");
+			run("Interpolate", "interval=10 smooth adjust");	
+			setTool("freehand");
+			setBatchMode("exit and display");
+			waitForUser("Please adjust the outline of the organoid and update the roi manager");
+			setBatchMode("hide");		
+		}*/
 	} else {	
 		if (manualsegmentation) {
 			setTool("freehand");
 			setBatchMode("exit and display");
 			waitForUser("Please draw the outline of the organoid");
 			setBatchMode("hide");
-			roiFftSmooth(0.1);
+			roiFftSmooth(1);
 			roiManager("add");
 			run("32-bit");
 		} else {		
@@ -111,31 +123,34 @@ function processFile(idx, folder, fname, tblname) {
 			segment(id);
 		}
 	}
-		
-	//removeScaleBar();
-	
-	
+					
 	// Compute curvature
 	roiManager("select", 0);	
-	Roi.getSplineAnchors(x, y);
+	//Roi.getSplineAnchors(x, y);
+	run("Fit Spline");
+	run("Interpolate", "interval=2 smooth adjust");	
+	Roi.getCoordinates(x, y);
 	run("Select None");
-	
-	
-	length = getCurvilinearLength(x,y);
 		
-	// average rdius
+	// compute the length along the contour in micron
+	length = getCurvilinearLength(x,y,pixel_size);
+		
+	// average radius (distance from contour to barycenter) in micron
 	R0 = getAverageRadius(x,y,pixel_size);
 	
-	// curvature
+	// curvature in micron
 	curvature = getContourCurvatureGeo(x,y,pixel_size);	
+	
+	// compute the log of the sum [kappa * length] over the all contour
 	E = log(getWeightedEnergy(curvature,length));
 
-	// Inflection points
+	// Detect inflection points such that the curvature is more than 1/(2 R0)
+	// or Rc < 2 R0
 	inflex = getContourInflectionPoints(curvature, R0);
 	K = inflex.length;
 
 	// Dirichlet normal energy
-	dnd = DND(x,y);
+	dnd = DND(x,y,pixel_size);
 	DNE = log(getWeightedEnergy(dnd,length));
 	
 	// Fractal dimension
@@ -274,7 +289,6 @@ function addColorBar(values) {
 
 function segment(id) {
 	preprocess(id);	
-	keepLargestROI();	
 	fitContour(id);
 	//roiManager("select", 0);
 	//roiFftSmooth(0.1);
@@ -295,8 +309,8 @@ function preprocess(id) {
 	run("Size...", "width="+(w/4)+" height="+(h/4)+" depth=1 constrain average interpolation=Bilinear");		
 	for (i = 0; i < 10; i++) {
 		run("Minimum...", "radius=2");
-		run("Maximum...", "radius=2");
 		run("Median...", "radius=2");
+		run("Maximum...", "radius=2");		
 	}
 	
 	// create a background ans substract it
@@ -306,7 +320,7 @@ function preprocess(id) {
 	for (i=0;i<4;i++) {
 		run("Maximum...", "radius=" + round(w/32));
 		run("Gaussian Blur...", "sigma=10");
-		run("Minimum...", "radius=" + round(w/32));
+		run("Minimum...", "radius=" + round(w/64));
 	}
 	run("Gaussian Blur...", "sigma="+w/32);
 	imageCalculator("Subtract", a, b);
@@ -316,7 +330,11 @@ function preprocess(id) {
 	run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=Bilinear");	
 	
 	// create ROI
-	setAutoThreshold("Otsu");
+	//setAutoThreshold("Li");
+	getStatistics(area, mean, min, max, std, histogram);
+	setThreshold(min, 0.7*min+0.3*max);
+	//setAutoThreshold("Default dark");
+	//setAutoThreshold("Otsu");
 	setOption("BlackBackground", false);
 	run("Convert to Mask");
 	run("Fill Holes");
@@ -326,27 +344,44 @@ function preprocess(id) {
 	selectImage(a);close();
 	selectImage(b);close();	
 	selectImage(id);	
+	keepLargestROI();	
+	Overlay.remove();
+}
+
+function preprocess2(id) {
+	selectImage(id);
+	run("Duplicate...","title=tmp");
+	id1  =getImageID();
+	setAutoThreshold("Default");
+	run("Analyze Particles...", "size=100-Infinity add");
+	resetThreshold();
+	keepLargestROI();
+	run("Interpolate", "interval=10 smooth adjust");	
 }
 
 function fitContour(id) {
 	/*Fit the contours of the image id, update the ROI manager*/	
 	selectImage(id);
+	
 	// create a contour image	
 	run("Select None");
 	run("Duplicate...","title=tmp2");
 	run("32-bit");
 	run("Gaussian Blur...", "sigma=1");
-	run("Median...", "radius=5");
-	run("Gaussian Blur...", "sigma=1");
+	for (iter=0;iter<5;iter++) {
+		run("Minimum...", "radius=2");
+		run("Median...", "radius=2");
+		run("Maximum...", "radius=2");
+	}
+	//run("Gaussian Blur...", "sigma=1");
 	run("Find Edges");
 	id1 = getImageID();
 	
 	initROI(id);
-	
-	
+		
 	selectImage(id1);
 	roiManager("select",0);
-	run("Interpolate", "interval="+10+"  smooth adjust");
+	run("Interpolate", "interval="+5+"  smooth adjust");
 	Roi.getSplineAnchors(x, y);	
 	delta=1;
 	showStatus("Optimizing contour");
@@ -596,19 +631,16 @@ function getContourInflectionPoints(curvature,r0) {
 	// return list of index where the curvature is more than 2 time the minor axis.
 	//r0 = getValue("Major");
 	//tmp = smooth1d(curvature,2);
-	tmp = curvature;
-	//Array.getStatistics(tmp, min, max, mean, stdDev);	
-	threshold = 0.5/r0;//mean + 0.5*stdDev;		
-	inflx = findPeaks(tmp, threshold, 10);	
+	tmp = curvature;	
+	threshold = 1 / r0;
+	inflx = findPeaks(tmp, threshold, 3);
 	
-	/*
 	xp = newArray(inflx.length);
 	yp = newArray(inflx.length);
 	for (i=0;i<inflx.length;i++){
 		xp[i] = inflx[i];
 		yp[i] = tmp[inflx[i]]; 
-	}
-	
+	}	
 	id = getImageID();
 	Plot.create("Title", "X","Y");
 	Plot.add("line", Array.getSequence(curvature.length), curvature);
@@ -621,7 +653,7 @@ function getContourInflectionPoints(curvature,r0) {
 	Plot.add("circle",xp,yp);
 	Plot.update();
 	selectImage(id);
-	*/
+	
 	return inflx;
 }
 
@@ -651,17 +683,17 @@ function getCircBB(n,i) {
 	if (i >=  n) return i-n;
 }
 
-function getCurvilinearLength(x,y) {
+function getCurvilinearLength(x,y,pixel_size) {
 	// return the distance between consecutive points
 	s = newArray(x.length);
 	for (i = 0; i < n-1; i++) {
 		dx = x[i+1] - x[i];
 		dy = y[i+1] - y[i];
-		s[i] = sqrt(dx*dx+dy*dy);
+		s[i] = pixel_size * sqrt(dx*dx+dy*dy);
 	}
 	dx = x[0] - x[x.length-1];
 	dy = y[0] - y[y.length-1];
-	s[x.length-1] = sqrt(dx*dx+dy*dy);
+	s[x.length-1] = pixel_size * sqrt(dx*dx+dy*dy);
 	return s;
 }
 
@@ -676,13 +708,13 @@ function getWeightedEnergy(value,weight) {
 	return e / p;
 }
 
-function DNDhelper(x0,y0,x1,y1,x2,y2) {
+function DNDhelper(x0,y0,x1,y1,x2,y2,pixel_size) {
 	// Norm of the variation of the normal projected on the tangent times 
 	// compute derivatives at point p-1 and p+1
-	dx1 = x1 - x0;
-	dx2 = x2 - x1;
-	dy1 = y1 - y0;
-	dy2 = y2 - y1;
+	dx1 = (x1 - x0) * pixel_size;
+	dx2 = (x2 - x1) * pixel_size;
+	dy1 = (y1 - y0) * pixel_size;
+	dy2 = (y2 - y1) * pixel_size;
 	s1 = sqrt(dx1 * dx1 + dy1 * dy1);
 	s2 = sqrt(dx2 * dx2 + dy2 * dy2);
 	dx1 = dx1 / s1;
@@ -697,22 +729,20 @@ function DNDhelper(x0,y0,x1,y1,x2,y2) {
 	return sqrt(dnu*dnu);
 }
 
-function DND(x,y) {
+function DND(x,y,pixel_size) {
 	n = x.length;
 	e = newArray(n);
 	for (i = 1; i < n-1; i++) {
-		e[i] = DNDhelper(x[i-1],y[i-1],x[i],y[i],x[i+1],y[i+1]);
+		e[i] = DNDhelper(x[i-1],y[i-1],x[i],y[i],x[i+1],y[i+1],pixel_size);
 	}
-	e[0] = DNDhelper(x[n-1],y[n-1],x[0],y[0],x[1],y[1]);
-	e[n-1] = DNDhelper(x[n-2],y[n-2],x[n-1],y[n-1],x[0],y[0]);
+	e[0] = DNDhelper(x[n-1],y[n-1],x[0],y[0],x[1],y[1],pixel_size);
+	e[n-1] = DNDhelper(x[n-2],y[n-2],x[n-1],y[n-1],x[0],y[0],pixel_size);
 	return e;
 }
 
 function colorContour(x,y,value,width) {
 	// color the contour with value as overlay
-	lut = getLutHexCodes("Ice");	
-	//Roi.getCoordinates(x, y);
-	//Roi.getSplineAnchors(x, y);	
+	lut = getLutHexCodes("Ice");		
 	if (colorbarmin==0 && colorbarmax==0) {
 		Array.getStatistics(value, colorbarmin, colorbarmax, mean, stdDev);
 		colorbarmin = - maxOf(abs(colorbarmax), abs(colorbarmin));
@@ -926,11 +956,13 @@ function powerspectrum(_real,_imag) {
 
 function roiFftSmooth(_threshold) {
 	// Smooth the contour using thresholding of the FFT
-	run("Interpolate", "interval=1 smooth adjust");
-	Roi.getCoordinates(x, y);		
+	run("Interpolate", "interval=5 smooth adjust");
+	//Roi.getCoordinates(x, y);	
+	Roi.getSplineAnchors(x, y);	
 	fftSmooth(x,y,_threshold);
 	setColor("green");
-	makeSelection("freehand", x, y);
+	//makeSelection("freehand", x, y);
+	Roi.setPolygonSplineAnchors(x, y);
 	run("Interpolate", "interval=1 smooth adjust");
 }
 
