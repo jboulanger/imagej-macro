@@ -109,13 +109,28 @@ function processFile(idx, folder, fname, tblname) {
 		}*/
 	} else {	
 		if (manualsegmentation) {
-			setTool("freehand");
-			setBatchMode("exit and display");
-			waitForUser("Please draw the outline of the organoid");
-			setBatchMode("hide");
-			roiFftSmooth(1);
-			roiManager("add");
-			run("32-bit");
+			if (File.exists(roifilename)) {
+				//setBatchMode("exit and display");
+				print(roifilename);
+				roiManager("Open", roifilename);
+				roiManager("select",0);
+				run("Interpolate", "interval=50 smooth adjust");	
+				run("Fit Spline");
+				setTool("freehand");
+				setBatchMode("exit and display");
+				waitForUser("Please adjust the outline of the organoid and update the roi manager");
+				setBatchMode("hide");
+				roiFftSmooth(1);
+				roiManager("add");
+			} else {
+				setTool("freehand");
+				setBatchMode("exit and display");
+				waitForUser("Please draw the outline of the organoid");
+				setBatchMode("hide");
+				roiFftSmooth(1);
+				roiManager("add");
+				run("32-bit");
+			}
 		} else {		
 			run("32-bit");
 			id = getImageID();
