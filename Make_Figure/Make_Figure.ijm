@@ -2,17 +2,19 @@
 /*
  * Make a figure from a stack by splitting channels
  */
-run("Close All");
+
 if (nImages==0) {
  	loadTestImage();
 }
 channel_names = parse_channel_names(channel_names_str);
-//setBatchMode("hide");
+Array.print(channel_names);
+setBatchMode("hide");
 makeFigure(channel_names);
-//setBatchMode("exit and display");
+setBatchMode("exit and display");
 
 function makeFigure(channel_names) {
 	id0 = getImageID();
+	name = getTitle();
 	Stack.getDimensions(width, height, channels, slices, frames);
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	print(slices);
@@ -55,7 +57,8 @@ function makeFigure(channel_names) {
 		makeRectangle(width*(c-1), 0, width, height);
 		setPasteMode("Copy");
 		run("Paste");
-		if (c<channel_names.length-1) {
+		if (c-1 < channel_names.length) {
+			print(channel_names[c-1]);
 			Overlay.drawString(channel_names[c-1], width*(c-1)+5, 25);		
 			Overlay.add();		
 			Overlay.show();
@@ -63,12 +66,13 @@ function makeFigure(channel_names) {
 	}
 	
 	run("Select None");
-	//selectImage(id1); close(); 
+	selectImage(id1); close(); 
 	
 	Stack.setXUnit(unit);
 	run("Properties...", "channels=1 slices=1 frames=1 pixel_width="+pixelWidth+" pixel_height="+pixelHeight+" voxel_depth=1");
 	l = round(width * pixelWidth / 5);	
 	run("Scale Bar...", "width="+l+" height=7 thickness=4 font=14 color=White background=None location=[Lower Right] horizontal bold overlay");
+	rename("Figure for "+name);
 	return id2;
 }
 
