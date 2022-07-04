@@ -10,7 +10,6 @@
 #@String(label="Tag", value="", description="Add a tag to the filename before the extension when saving the image") tag
 #@String(label="Format",choices={"TIFF","PNG","JPEG"}, style="list", description="File format as in the saveAs() command") format
 
-
 /*
  * Convert files
  * 

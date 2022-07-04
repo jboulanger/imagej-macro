@@ -9,6 +9,10 @@
  * Jerome Boulanger 2021 for Florence
  */
 
+if (nImages==0) {
+	createTestImage();
+	exit();
+}
 
 setBatchMode(true);
 name = getTitle;
@@ -40,7 +44,7 @@ function correct() {
 
 
 function trackBrightSpot() {
-	// estimate the drift by tracking a bright over time
+	// estimate the drift by tracking a bright over time	
 	run("Duplicate...", "title=tmp duplicate");
 	run("Gaussian Blur 3D...", "x=0.1 y=0.1 z=0.1");
 	run("Median 3D...", "x=1 y=1 z=5");
@@ -254,4 +258,43 @@ function estimateShiftCore(id1,id2,scale) {
 	for (i = 0; i < ids.length; i++) {selectImage(ids[i]);close();}
 	//selectImage(mask);close();
 	return newArray(vx/scale,vy/scale);
+}
+
+
+function createTestImage() {
+	T = 100;
+	W = 200;
+	H = 200;
+	d = 5;
+	N = 50;	
+	newImage("Test Image", "8-bit black", W, H, 1, 1, T);
+	dx = 0;
+	dy = 0;
+	vx = 0;
+	vy = 0;
+	
+	setColor(255);
+	bxmin = W/2+dx-d/2;
+	bxmax = W/2+dx-d/2;
+	bymin = H/2+dy-d/2;
+	bymax = H/2+dy-d/2;
+	for (t = 1; t <= T; t++) {
+		setSlice(t);			
+		makeOval(W/2+dx-d/2,H/2+dy-d/2, d, d);		
+		fill();
+		bxmin = minOf(bxmin, W/2+dx-d/2);
+		bxmin = minOf(bxmin, W/2+dx-d/2);
+		bxmin = minOf(bxmin, W/2+dx-d/2);
+		bxmin = minOf(bxmin, W/2+dx-d/2);
+		for (n = 0; n < N; n++) {
+			makeOval(W/2+dx-d/2+(n/5+W/4)*cos(5.5*2*PI*n/N+t),H/2+dy-d/2+(n/5+H/4)*sin(5.5*2*PI*n/N+t), d, d);		
+			fill();
+		}
+		dx += vx + 5*(random-0.5);
+		dy += vy + 5*(random-0.5);
+		vx = 0.1*random();
+		vx = 0.1*random();
+	}
+	setSlice(1);
+	makeOval(W/2-d/2,H/2-d/2, d, d);
 }
