@@ -120,10 +120,11 @@ function estimateMotion() {
 	
 	id = getImageID();
 	Stack.getDimensions(width, height, channels, slices, frames);
+	
 	for (k = 0; k < frames; k++){setResult("Frame", k, k+1);setResult("X",k,0);setResult("Y",k,0);}
 	delta_avg = 1;
 	delta_max = 1;
-	for (n = 0;  n < 30 && delta_max > 0.01; n++) {
+	for (n = 0;  n < 5 && delta_max > 0.01; n++) {
 		delta_avg = 0;
 		delta_max = 0;
 		num = 0;

@@ -32,7 +32,7 @@ function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, f
 	 * format : file format for saving files (PNG or TIFF)
 	 */
 	setBatchMode(true);	
-	m = 10;
+	m = 10; // number of fiels in info
 	n = info.length / m;
 	k = 0;
 	basename = File.getNameWithoutExtension(ipath);
