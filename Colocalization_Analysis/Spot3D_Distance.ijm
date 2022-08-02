@@ -172,7 +172,7 @@ function computeDistances(tbl, channel_names, channel_indices) {
 		}
 		// store the NN information in the table
 		for (j = 0; j < channel_indices.length; j++) {	
-			if (idx[j] > 0) {
+			if (idx[j] >= 0) {
 				Table.set(channel_names[j] + " NN index", i, idx[j]);
 				Table.set(channel_names[j] + " NN distance", i, dmin[j]);			
 			} else {
