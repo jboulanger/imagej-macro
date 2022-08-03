@@ -120,15 +120,21 @@ function processFile(idx, folder, fname, tblname) {
 				setTool("freehand");
 				setBatchMode("exit and display");
 				waitForUser("Please adjust the outline of the organoid and update the roi manager");
-				setBatchMode("hide");
+				setBatchMode("hide");				
 				roiFftSmooth(1);
+				run("Interpolate", "interval=10 smooth adjust");	
+				run("Fit Spline");
+				fixContourOrientation();
 				roiManager("add");
 			} else {
 				setTool("freehand");
 				setBatchMode("exit and display");
 				waitForUser("Please draw the outline of the organoid");
-				setBatchMode("hide");
+				setBatchMode("hide");				
 				roiFftSmooth(1);
+				run("Interpolate", "interval=10 smooth adjust");	
+				run("Fit Spline");
+				fixContourOrientation();
 				roiManager("add");
 				run("32-bit");
 			}
@@ -282,6 +288,40 @@ function processFile(idx, folder, fname, tblname) {
  	run("Select None");
  	setBatchMode("exit and display");
  	print("Done");
+}
+
+function fixContourOrientation() {
+	
+	Roi.getCoordinates(x, y);
+	Array.getStatistics(x, min, max, xc, stdDev);
+	Array.getStatistics(y, min, max, yc, stdDev);
+	dx = diff(x);
+	dy = diff(y);
+	dp = 0;
+	for (i = 0; i < x.length; i++){
+		// dot product of the normal and the radius
+		nx = dx[i];
+		ny = -dy[i];
+		n = sqrt(nx*nx+ny*ny);		
+		nx /= n;
+		ny /= n;
+		rx = x[i]-xc;
+		ry = y[i]-yc;
+		r = sqrt(rx*rx+ry*ry);
+		rx /= r;
+		ry /= r;
+		if (n > 0 && r > 0) {
+			dp += nx*rx+ny*ry;		
+		}
+	}
+	dp /= x.length;
+	print("Contour orientation " + dp);
+	if (dp < 0) {
+		Array.reverse(x);
+		Array.reverse(y);
+		Roi.setPolygonSplineAnchors(x, y);
+	}
+	
 }
 
 function fixNaN(array) {
@@ -770,8 +810,8 @@ function removeScaleBar() {
 function getContourInflectionPoints(curvature,r0) {
 	// return list of index where the curvature is more than 2 time the minor axis.
 	//r0 = getValue("Major");
-	//tmp = smooth1d(curvature,2);
-	tmp = curvature;	
+	tmp = smooth1d(curvature,2);
+	//tmp = curvature;	
 	threshold = 1 / r0;
 	inflx = findPeaks(tmp, threshold, 3);
 	
@@ -781,7 +821,7 @@ function getContourInflectionPoints(curvature,r0) {
 		xp[i] = inflx[i];
 		yp[i] = tmp[inflx[i]]; 
 	}	
-	/*
+	
 	id = getImageID();
 	
 	Plot.create("Title", "X","Y");
@@ -795,7 +835,7 @@ function getContourInflectionPoints(curvature,r0) {
 	Plot.add("circle",xp,yp);
 	Plot.update();
 	selectImage(id);
-	*/
+	
 	return inflx;
 }
 
