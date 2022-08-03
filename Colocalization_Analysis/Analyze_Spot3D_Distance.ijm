@@ -26,7 +26,7 @@ var file_count; // index of file (global var)
 // skip sliently the file if not a csv file
 if (!endsWith(ipath_csv, ".csv")) {exit();}
 
-setBatchMode("hide");
+//setBatchMode("hide");
 
 start_time = getTime();
 
@@ -35,52 +35,52 @@ channel_names = parseCSVString(channel_names_str_order);
 // Open the csv file
 print("Loading\n" + ipath_csv);
 open(ipath_csv);
-tbl1 = Table.title;
+tbl1 = File.getName(ipath_csv);
+print("Input table: " + tbl1);
 file_count++;
 
-print("Chained clusters");
+print(" * Chained clusters");
 tbl3 = "clusters.csv";
 if (clusters_visualization) {
-	print("Creating new table " + tbl3);
+	print("   Creating new table " + tbl3);
 	Table.create(tbl3); // erase the table content
 } else {		
-	if (!isOpen(tbl3)) {		
-		print("Create new table" + tbl3);
+	if (!isOpen(tbl3) && file_count == 1) {		
+		print("   Create new table " + tbl3);
 		Table.create(tbl3);  // keep the previous lines
 	} else {
-		print("Reusing table " + tbl3);
+		print("   Reusing table " + tbl3);
 	}
 }
 
 indices = identifyChainedClusters(tbl1, tbl3, channel_names, distance_threshold);
 nchained = indices.length;
+print("Number of chained cluster: " + nchained);
 
-print("Overlap measurements");
+print(" * Overlap measurements");
 tbl2 = "overlaps.csv";
 if (clusters_visualization) {		
-	print("Creating new table " + tbl2);
+	print("   Creating new table " + tbl2);
 	Table.create(tbl2); // erase the table content
 } else {
-	if (!isOpen(tbl2)) { 		
-		print("Creating new table " + tbl2);
+	if (!isOpen(tbl2) && file_count == 1) { 		
+		print(" Creating new table " + tbl2);
 		Table.create(tbl2); // keep the previous lines
 	} else {
-		print("Reusing table " + tbl2);
+		print("   Reusing table " + tbl2);
 	}
 } 
 computeOverlap(tbl1, tbl2, channel_names, distance_threshold, nchained);
 
-
+print("  Closing table " + tbl1);
 selectWindow(tbl1); run("Close");
-
-
 
 if (clusters_visualization) {	
 	folder = File.getParent(File.getDirectory(ipath_csv));
 	displayChainedCluster(folder, tbl3, indices, distance_threshold);
 }
 
-setBatchMode("exit and display");
+//setBatchMode("exit and display");
 
 end_time = getTime();
 
@@ -101,7 +101,7 @@ function displayChainedCluster(folder, clusters, idx, distance_threshold) {
 	for (i = 0 ; i<3; i++) {Stack.setChannel(i+1); run(colors[i]); }
 	img = getImageID();
 	setColor("yellow");
-	Overlay.remove();	
+	Overlay.remove();
 	Stack.getDimensions(width, height, channels, slices, frames);
 	print("Image size" + width + "x" + height + "x" + slices );
 	for (i = 0; i < idx.length; i++) {
@@ -109,7 +109,7 @@ function displayChainedCluster(folder, clusters, idx, distance_threshold) {
 		x = round(Table.get("X", idx[i]) / dx);
 		y = round(Table.get("Y", idx[i]) / dy);
 		z = round(Table.get("Z", idx[i]) / dz);		
-		print("X:"+x+", Y:"+y+", Z:"+z + ", R:"+r);
+		print(" coordinates: ("+x+","+y+","+z + ") px radius: "+r+"px");
 		selectImage(img);
 		Overlay.drawEllipse(x-r, y-r, 2*r, 2*r);
 		Overlay.add();
@@ -161,17 +161,17 @@ function computeOverlap(src, dst, channel_names, threshold, nchained) {
 	Table.set("Threshold", row, threshold);
 	Table.set("# chained", row, nchained);
 	for (k = 0; k < channel_names.length; k++) {	
-		Table.set(channel_names[k], row, counts[k]);
+		Table.set("#" + channel_names[k], row, counts[k]);
 	}
 	for (k = 0; k < channel_names.length; k++) {
 		for (l = 0; l < channel_names.length; l++) if (k!=l) {
-			Table.set("#" + channel_names[k]+"-"+channel_names[l], row, nnoverlaps[k+channel_names.length*l]);			
+			Table.set("#" + channel_names[k]+":"+channel_names[l], row, nnoverlaps[k+channel_names.length*l]);			
 		}		
 	}
 	for (k = 0; k < channel_names.length; k++) {
 		for (l = 0; l < channel_names.length; l++) if (k!=l) {
 			I = k + channel_names.length * l;
-			Table.set("Ratio ["+channel_names[k]+":"+channel_names[l]+"]", row, nnoverlaps[I] / counts[k]);
+			Table.set("Ratio ["+channel_names[k]+":"+channel_names[l]+"]/"+channel_names[k], row, nnoverlaps[I] / counts[k]);
 		}		
 	}
 	for (k = 0; k < channel_names.length; k++) {
@@ -211,7 +211,8 @@ function identifyChainedClusters(src, dst, channel_names, threshold) {
 				d = Table.get(channel_names[k] + " NN distance", j);				
 				idx[k] = Table.get(channel_names[k] + " NN index", j);
 				distances[k-1] = d;
-				volumes[k] = Table.get("Volume", j);			
+				volumes[k] = Table.get("Volume", j);		
+				j = idx[k];
 			}
 			Array.getStatistics(distances, dmin, dmax);			
 			if (dmax < threshold) {				
@@ -219,6 +220,7 @@ function identifyChainedClusters(src, dst, channel_names, threshold) {
 				row = Table.size;
 				Table.set("Image Name", row, name);
 				Table.set("Image Index", row, file_count);
+				Table.set("Cluster Index", row, row-row0+1);
 				for (k = 0; k < channel_names.length; k++) {
 					Table.set(channel_names[k], row, idx[k]);					
 				}				
@@ -236,10 +238,11 @@ function identifyChainedClusters(src, dst, channel_names, threshold) {
 		}
 	}
 	// generate the list of rows that were added
-	idx = newArray(row-row0);
+	idx = newArray(row-row0+1);
 	for (i = 0; i < idx.length; i++) {
 		idx[i] = row0 + i;
-	}	
+	}
+	
 	return idx;
 }
 
