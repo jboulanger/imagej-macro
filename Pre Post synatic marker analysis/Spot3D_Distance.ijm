@@ -292,7 +292,7 @@ function segment3DBlobs2(id, channel, size, pfa, maskid) {
 	// separate touching objects
 	run("Marker-controlled Watershed", "input=distance marker=label mask=mask compactness=0 binary calculate use");
 	id7 = getImageID();
-		// filter by size
+	// filter by size
 	v0 = round(100 * 4/3*PI*size*size*size/(dx*dy*dz));	
 	run("Label Size Filtering", "operation=Lower_Than size="+v0);
 	id8 = getImageID();

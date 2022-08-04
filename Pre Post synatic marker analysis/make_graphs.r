@@ -3,6 +3,7 @@ library(tidyverse)
 library(infer)
 
 folder = file.choose(new = FALSE)
+result = "result2"
 
 # load the information about the series extracted from the lif file
 # extract the condition by parsing the serie name
@@ -14,19 +15,29 @@ info <- read_csv(file.path(folder, "info.csv"),show_col_types = FALSE) %>%
 info$Condition <- ordered(info$Condition, levels=c("WT","dPDZ"))
 
 # load the overlap table and make a join to get the conditions
-overlap <- read_csv(file.path(folder, "result","overlaps.csv"),show_col_types = FALSE) %>%
+overlap <- read_csv(file.path(folder, result,"overlaps.csv"),show_col_types = FALSE) %>%
   inner_join(info,by="Image Name")
 
 # number of chained cluster by condition
 overlap %>% ggplot(aes(x=`Condition`,y=`# chained`)) + geom_boxplot()
 
 # ratio number of chained cluster vs number of bassoon
-overlap %>% ggplot(aes(x=`Condition`,y=`# chained`/`bassoon`))+ geom_boxplot()
+overlap %>% ggplot(aes(x=`Condition`,y=`# chained`/`#bassoon`))+ geom_boxplot()
 
-overlap %>% t_test(formula=`# chained`~`bassoon`)
+
+overlap %>% ggplot(aes(x=`Image Name`,y=`# chained`/`#bassoon`)) + geom_point() + coord_flip()
+
+
+tmp <- overlap %>% select(`# chained`,`Condition`)
+
+
+
+%>% t_test(formula=`# chained`~`Condition`)
+
+
 
 # load the chained clusters table and add the condition
-cl <- read_csv(file.path(folder, "result","clusters.csv"),show_col_types = FALSE)
+cl <- read_csv(file.path(folder, result,"clusters.csv"),show_col_types = FALSE)
 
 # count the number of clusters per image from the cluster.csv file
 cl %>%
