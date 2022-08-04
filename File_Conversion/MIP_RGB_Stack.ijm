@@ -8,7 +8,6 @@
  * Convert files by computing a MIP converting them to RGB and stacking them in one image
  * 
  * This is useful to get a quick overview of the data when combine with a montage
- * and using it in batch 
  * 
  * Jerome Boulanger
  */
@@ -21,12 +20,14 @@ var sid; // stack id
 luts  = parseCSVString(luts_str);
 
 if(file_count==0) {run("Close All");}
-
+setBatchMode("hide");
 id = getFlattenedImage(ipath_bigstack, luts, font_size);
 
 sid = addToStack(sid, id);
 
 file_count++;
+
+setBatchMode("exit and display");
 
 function addToStack(sid, id) {
 	// add the 2D flattened image to a stack
@@ -95,7 +96,6 @@ function autoContrast() {
 	// find the mode of the histogram
 	pos = Array.findMaxima(counts, max/10);	
 	if (pos.length>0) {
-		print("Using mode");
 		vmin = values[pos[0]]; 
 		sum = 0;
 		for (i = 0; i < nbins && sum < 0.999 * npx; i++) {
@@ -106,8 +106,7 @@ function autoContrast() {
 		getStatistics(area, mean, min, max, std, histogram);
 		vmin = mean;
 		vmax = mean+5*std;
-	}	
-	print("v=["+vmin+"-"+vmax+"]");
+	}		
 	setMinAndMax(vmin,vmax);
 }
 
