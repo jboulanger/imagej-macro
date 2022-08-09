@@ -99,15 +99,9 @@ function processFile(idx, folder, fname, tblname) {
 	
 	if (useSavedROI && File.exists(roifilename)) {
 		roiManager("Open", roifilename);
-		/*if (manualsegmentation) {
-			roiManager("select", 0);
-			run("Fit Spline");
-			run("Interpolate", "interval=10 smooth adjust");	
-			setTool("freehand");
-			setBatchMode("exit and display");
-			waitForUser("Please adjust the outline of the organoid and update the roi manager");
-			setBatchMode("hide");		
-		}*/
+		roiManager("select", 0);
+		fixContourOrientation();
+		roiManager("update");
 	} else {	
 		if (manualsegmentation) {
 			if (File.exists(roifilename)) {
@@ -122,18 +116,19 @@ function processFile(idx, folder, fname, tblname) {
 				waitForUser("Please adjust the outline of the organoid and update the roi manager");
 				setBatchMode("hide");				
 				roiFftSmooth(1);
-				run("Interpolate", "interval=10 smooth adjust");	
 				run("Fit Spline");
+				run("Interpolate", "interval=10 smooth adjust");					
 				fixContourOrientation();
 				roiManager("add");
+				run("32-bit");
 			} else {
 				setTool("freehand");
 				setBatchMode("exit and display");
 				waitForUser("Please draw the outline of the organoid");
 				setBatchMode("hide");				
 				roiFftSmooth(1);
-				run("Interpolate", "interval=10 smooth adjust");	
 				run("Fit Spline");
+				run("Interpolate", "interval=10 smooth adjust");	
 				fixContourOrientation();
 				roiManager("add");
 				run("32-bit");
@@ -179,7 +174,7 @@ function processFile(idx, folder, fname, tblname) {
 
 	// Detect inflection points such that the curvature is more than 1/(2 R0)
 	// or Rc < 2 R0
-	inflex = getContourInflectionPoints(curvature, R0);
+	inflex = getContourInflectionPoints(curvature, R0/2);
 	K = inflex.length;
 	
 	// Dirichlet normal energy
@@ -290,8 +285,10 @@ function processFile(idx, folder, fname, tblname) {
  	print("Done");
 }
 
+
+
 function fixContourOrientation() {
-	
+	// re-orient the contour so that the normal
 	Roi.getCoordinates(x, y);
 	Array.getStatistics(x, min, max, xc, stdDev);
 	Array.getStatistics(y, min, max, yc, stdDev);
@@ -300,8 +297,8 @@ function fixContourOrientation() {
 	dp = 0;
 	for (i = 0; i < x.length; i++){
 		// dot product of the normal and the radius
-		nx = dx[i];
-		ny = -dy[i];
+		nx = dy[i];
+		ny = -dx[i];
 		n = sqrt(nx*nx+ny*ny);		
 		nx /= n;
 		ny /= n;
@@ -313,13 +310,15 @@ function fixContourOrientation() {
 		if (n > 0 && r > 0) {
 			dp += nx*rx+ny*ry;		
 		}
+		
 	}
 	dp /= x.length;
 	print("Contour orientation " + dp);
-	if (dp < 0) {
+	if (dp > 0) {
+		print("Fix orientation");
 		Array.reverse(x);
 		Array.reverse(y);
-		Roi.setPolygonSplineAnchors(x, y);
+		Roi.setPolygonSplineAnchors(x, y);			
 	}
 	
 }
