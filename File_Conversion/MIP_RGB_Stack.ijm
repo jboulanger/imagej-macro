@@ -9,7 +9,7 @@
  * 
  * This is useful to get a quick overview of the data when combine with a montage
  * 
- * Jerome Boulanger
+ * Jerome Boulanger 2022
  */
 
 var Width; // width of the stack
@@ -20,7 +20,9 @@ var sid; // stack id
 luts  = parseCSVString(luts_str);
 
 if(file_count==0) {run("Close All");}
+
 setBatchMode("hide");
+
 id = getFlattenedImage(ipath_bigstack, luts, font_size);
 
 sid = addToStack(sid, id);

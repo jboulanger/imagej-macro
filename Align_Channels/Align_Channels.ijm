@@ -315,7 +315,7 @@ function sinkhorn(C,p,q,gamma) {
 	 * q : mass [m,1] vector (probability)
 	 * gamma : entropic regularization parameter
 	 * Note
-	 * - p and q will be normalized by their sum and res+++haped as column vector
+	 * - p and q will be normalized by their sum and reshaped as column vector
 	 * - if gamma < 0, gamma is set to 10/min(C) 
 	 * 
 	 */
