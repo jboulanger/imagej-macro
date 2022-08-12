@@ -32,7 +32,7 @@ if (split_channels) {
 	selectImage(id1);
 	Stack.getDimensions(width, height, channels, slices, frame);
 	for (c = 1; c <= channels; c++) {
-		selectImage(
+		selectImage(id1);
 		run("Duplicate...", "duplicate channels="+c);
 		idc = getImageID();		
 		oname = imageFolder + File.separator + name + "_channel_" + IJ.pad(s,2) + tag + ext;
@@ -64,6 +64,9 @@ function getNewFileExtension(format) {
 
 function processImage(channel, slice, frame, mip, mode, display_mode) {
 	id0 = getImageID();
+	if (nSlices==0) {
+		return id0;
+	}
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (!matches(channel, "all") || !matches(slice, "all") || !matches(frame, "all") ) {
 		if (matches(channel, "all")) {
