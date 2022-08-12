@@ -18,12 +18,14 @@ print("\\Clear");
 
 if (nImages==0) {
 	createTest();
+	testmode = true;
 }
 
 channel_names = parseCSVString(channel_names_csv);
 roi_names = parseCSVString(roi_names_csv);
 roi_colors = parseCSVString(roi_colors_csv);
-tbl = "mytable.csv";
+
+tbl = File.getNameWithoutExtension(getTitle())+'.csv';
 initTable(tbl, roi_names, channel_names);
 
 Overlay.remove();
@@ -35,8 +37,30 @@ bloombloom(tbl, roi_names, channel_names, measurement);
 
 addOverlays();
 
+if (testmode) {
+	createMontage();
+}
+
 end_time = getTime();
 print("Elapsed time " + (end_time - start_time)/1000 + "s");
+
+function createMontage() {
+	Stack.getDimensions(width, height, channels, slices, frames);
+	setColor("white");
+	for (i = 1; i <= frames; i++) {
+		Overlay.drawString("t="+i, 2, 14);
+		Overlay.setPosition(0, 0, i);
+		Overlay.add();
+	}
+	Stack.setDisplayMode("composite");
+	run("RGB Color", "frames keep");
+	id1=getImageID();
+	run("Flatten", "stack");	
+	run("Make Montage...", "columns=5 rows=2 scale=1");
+	id3=getImageID();
+	selectImage(id1); close();	
+	selectImage(id3); 
+}
 
 function bloombloom(tbl, roi_names, channel_names, measurement) {	
 	// morph roi and measure over time
@@ -52,7 +76,10 @@ function addOverlays() {
 	n = roiManager("count");
 	for (i = 0; i < n; i++) {
 		roiManager("select", i);
+		Roi.getPosition(channel, slice, frame);		
 		Overlay.addSelection();	
+		Overlay.setPosition(0, 0, frame);
+		Overlay.show();
 	}
 }
 
@@ -288,19 +315,20 @@ function createTest() {
 	newImage("Test Image", "8-bit black", width, height, channels, 1, 2);
 	Stack.setPosition(1, 1, 1);
 	makeRectangle(width/4, height/4, width/2, height/2);
-	setColor(121);
+	setColor(255);
 	run("Fill", "slice");
 	Stack.setPosition(1, 1, 2);
 	makeOval(width/4, height/4, width/2, height/2);
-	setColor(190);
+	setColor(128);
 	run("Fill", "slice");
 	Stack.setPosition(2, 1, 1);
 	makeOval(68, 83, 22, 22);
-	setColor(12);
+	setColor(255);
 	run("Fill", "slice");
 	Stack.setPosition(2, 1, 2);
 	makeOval(103, 101, 20, 20);	
 	setColor(255);
+	
 	run("Fill", "slice");
 	run("Select None");	
 	run("Size...", "width="+width+" height="+height+" time="+frames+" average interpolation=Bilinear");
