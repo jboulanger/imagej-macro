@@ -39,6 +39,7 @@ end_time = getTime();
 print("Elapsed time " + (end_time - start_time)/1000 + "s");
 
 function bloombloom(tbl, roi_names, channel_names, measurement) {	
+	// morph roi and measure over time
 	for (i = 0; i < roi_names.length; i++) {
 		rois0 = getROIGroup(roi_names[i]);
 		rois1 = addIntermediateROIsForGroup(rois0);	
@@ -47,11 +48,32 @@ function bloombloom(tbl, roi_names, channel_names, measurement) {
 }
 
 function addOverlays() {
+	// add overlays
 	n = roiManager("count");
 	for (i = 0; i < n; i++) {
 		roiManager("select", i);
 		Overlay.addSelection();	
 	}
+}
+
+function getROINameList() {
+	// get the names of the ROI
+	n = roiManager("count");
+	roiManager("select", 0);
+	names = newArray(Roi.getName);	
+	k = 1;
+	for (i = 1; i < n; i++) {
+		roiManager("select", i);
+		name = Roi.getName;
+		for (j = 0; j < names.length; j++) {
+			if (!matches(name, names[j])) {			
+				names[k] = name;
+				k++;
+				break;
+			}
+		}		
+	}
+	return Array.trim(names, k);
 }
 
 function measure(tbl, rois, roi_name, channel_names, measurement) {
@@ -119,8 +141,8 @@ function addIntermediateROIs(id1, id2) {
 	if (t2 - t1 < 1) {return newArray();}
 	D = pairwiseDistance(p1, p2);
 	P = sinkhorn_uniform(D,100);	
-	threshold = 0.75 * matmax(P,-1);
-	print("Interpolation " +id1+"["+t1+"] and "+id2+" ["+t2+"]");
+	threshold = 0.5 * matmax(P,-1);
+	print("Interpolation of roi:" +id1+"[t:"+t1+"] and roi:"+id2+" [t:"+t2+"]");
 	rois = newArray(t2-t1-1);
 	for (k = 0; k < rois.length; k++) {
 		p = interpolateROICoordinates(P,p1,p2,t1,t2,t1+k+1,threshold);
@@ -138,7 +160,8 @@ function addROIfromCoordinates(p,t,name,color) {
 		x[i] = matget(p,0,i);
 		y[i] = matget(p,1,i);
 	}	
-	makeSelection(3, x, y);	
+	makeSelection(3, x, y);		
+	run("Fit Spline");
 	run("Interpolate", "interval=1 smooth");
 	Roi.setName(name);	
 	Roi.setStrokeColor(color);
@@ -153,9 +176,9 @@ function interpolateROICoordinates(P,p0,p1,t0,t1,t,threshold) {
 	n = matcol(p0);
 	m = matcol(p1);
 	p = matzeros(2,n*m);
-	dt = (t-t0) / (t1-t0);
+	dt = (t-t0) / (t1-t0-1);
 	// this make the deformation more progressive at the begining and the end
-	s = 3 * dt * dt - 2 * dt * dt * dt;			
+	s = 3 * dt * dt - 2 * dt * dt * dt;		
 	k = 0;
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {			
@@ -183,8 +206,7 @@ function orderROIIndicesByFrame(rois) {
 		roiManager("select", rois[i]);
 		wait(10);
 		Roi.getPosition(channel, slice, frame);
-		time[i] = frame;
-		print(rois[i]+":"+frame);
+		time[i] = frame;		
 	}		
 	ranks = Array.rankPositions(time);
 	ordered_rois = newArray(rois.length);
@@ -206,11 +228,9 @@ function getROIGroup(name) {
 	n = roiManager("count");
 	rois = newArray(n);
 	time = newArray(n);
-	k = 0;
-	print(name);
+	k = 0;	
 	for (i = 0; i < n; i++) {
-		roiManager("select", i);
-		print(Roi.getName());
+		roiManager("select", i);		
 		if (matches(Roi.getName(), name)) {
 			Roi.getPosition(channel, slice, frame);
 			rois[k] = i;
@@ -246,7 +266,9 @@ function preprocessROIs(names,colors) {
 				break;
 			}
 		}
-		ds = maxOf(2,getValue("Perim.") / 50);		
+		getPixelSize(unit, px, px);
+		ds = maxOf(2, getValue("Perim.") / px / 50);		
+		print(ds);
 		run("Interpolate", "interval="+ds+" smooth");
 		run("Fit Spline");
 		run("Interpolate", "interval="+ds+" smooth");
