@@ -20,3 +20,23 @@ These can be combine with the ROI Manager's hotkey: [t] and [u] to define and re
    - Move to another time point (as long the movement is linear between time point it is ok), and repeat until you reach the end of the movie
 4. Press the key 'q' to quantify the FRAP recovery
 5. Assign FRAP, Control and Background labels to the ROIs and set the time of photobleaching (in frame).
+
+# Morph_ROI
+This macro helps measure intensity in ROIs along time. From a define set of ROI, the macro interpolates the shapes of ROI along time to populate the missing frames using the existing ROI as control points. Several group of ROI can be defined by giving them the same name.
+
+## Tutorial
+1. Download and save the [macro](https://raw.githubusercontent.com/jboulanger/imagej-macro/main/FRAP_Measure/Morph_ROI.ijm)
+2. Open an image sequence
+3. Draw shapes at various time points and add them to the ROI manager
+4. Using the "rename" tool of the ROI manager, define groups of the ROIs (eg cell and foci)
+5. Run the macro and list the name of the channels using comma as separator, list the name of ROI you want to use and their colors. Finally choose a measurement in the list.
+6. Press run
+
+Running the macro with no opened image will create a test image and should produce this montage:
+
+![image](https://user-images.githubusercontent.com/3415561/184339037-7b90ced4-c9e9-4b6a-834c-ee6b32a30bc0.png)
+
+along with those measutements:
+
+![image](https://user-images.githubusercontent.com/3415561/184339208-e6e5b23a-fb6f-46c5-baac-4d8c9fa67611.png)
+
