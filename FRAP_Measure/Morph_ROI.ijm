@@ -19,6 +19,8 @@ print("\\Clear");
 if (nImages==0) {
 	createTest();
 	testmode = true;
+} else {
+	testmode=false;
 }
 
 channel_names = parseCSVString(channel_names_csv);
@@ -108,8 +110,9 @@ function measure(tbl, rois, roi_name, channel_names, measurement) {
 	for (i = 0; i < rois.length; i++) {						
 		id = rois[i];
 		frame = getROIFrame(id);
-		for (j = 0; j < channel_names.length; j++) {
-			roiManager("select", id);		
+		for (j = 0; j < channel_names.length; j++) {			
+			roiManager("select", id);	
+			Stack.setChannel(j+1);	
 			value = getValue(measurement);
 			Table.set(roi_name+"-"+channel_names[j], frame-1, value);
 		}
@@ -120,14 +123,21 @@ function measure(tbl, rois, roi_name, channel_names, measurement) {
 function initTable(tbl, roi_names, channel_names) {
 	// init a table a fill it with -1;	
 	Table.create(tbl);	
-	Stack.getDimensions(width, height, channels, slices, frames);	
+	n = roiManager("count");
+	frames = 0;
+	for (i = 0; i < n; i++) {		
+		frame = getROIFrame(i);
+		if (frame > frames) {
+			frames = frame;
+		}
+	}	
 	tunits = getTimeUnits();
 	for (frame = 1; frame <= frames; frame++) {
 		Table.set("Frame", frame-1, frame);
 		Table.set(tunits[2], frame-1, (frame-1) * tunits[0]);
 		for (i = 0; i < roi_names.length; i++) {
 			for (j = 0; j < channel_names.length; j++) {
-				Table.set(roi_names[i]+"-"+channel_names[j], frame-1, -1);
+				Table.set(roi_names[i]+"-"+channel_names[j], frame-1, NaN);
 			}
 		}		
 	}
