@@ -64,7 +64,7 @@ function getNewFileExtension(format) {
 
 function processImage(channel, slice, frame, mip, mode, display_mode) {
 	id0 = getImageID();
-	if (nSlices==0) {
+	if (nSlices==1) {
 		return id0;
 	}
 	Stack.getDimensions(width, height, channels, slices, frames);
