@@ -10,13 +10,13 @@
  
  
 // create 2 random vectors
-x1 = generateSamples(10,0,1);
-x2 = generateSamples(10,0,1);
+x1 = generateSamples(20,0,1);
+x2 = generateSamples(20,1,1);
 
 // display the data in a table
 Array.show("data",x1,x2);
-saveAs("Results", "/home/jeromeb/data.csv");
-ttest(x1,x2,"less");
+saveAs("Results", "data.csv");
+ttest(x1,x2,"two sided");
 
 
 function generateSamples(n,m,s) {
@@ -39,9 +39,7 @@ function ttest(x1,x2,tail) {
 	/* independent two-sample t-test
 	 *  input:
 	 *  x1, x2 : arrays
-	 *  tail: tail: two sided, less, greater
-	 *  
-	 *  TODO implement tail (for now it is only less)
+	 *  tail: tail: two sided, less, greater 
 	 */
 	Array.getStatistics(x1, min, max, m1, s1);
 	n1 = x1.length;
@@ -65,9 +63,14 @@ function ttest(x1,x2,tail) {
 			case = "non-equal size, non-equal variance";
 		}
 	}
-	p = student_t_cdf(t, df);
-	
-	print("hypt:"+tail+ " case:" + case + " t:"+t + ", df:"+df + " p:"+p);
+	if (matches(tail,"less")) {
+		p = student_t_cdf(t, df);	
+	} else if(matches(tail,"more")) {
+		p = student_t_cdf(-t, df);
+	} else {		
+		p = 1-student_t_cdf(-t, df) + student_t_cdf(t, df);
+	}
+	print("hyptothesis:"+tail+ ", case:" + case + ", t:"+t + ", df:"+df + " p:"+p);
 	return p;
 }
 
