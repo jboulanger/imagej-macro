@@ -27,7 +27,7 @@ if (File.exists(local_jobs_dir) != 1) {
 	print("Jobs folder already present in " + local_share);
 }
 
-// copy the template filre
+// copy the template file
 print("Copy template " + template_name + " file to " + local_template_cpy_path + ".");
 File.copy(local_template_path, local_template_cpy_path);
 

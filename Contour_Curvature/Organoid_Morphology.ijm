@@ -430,7 +430,7 @@ function preprocess(id) {
 		run("Minimum...", "radius=10");
 	}	
 	run("Invert");
-	saveAs("TIFF", "/home/jeromeb/Desktop/tmp.tif");
+	
 	run("Analyze Particles...", "size=100-Infinity exclude add");
 	run("Select None");
 	// clean up	images

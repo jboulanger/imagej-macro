@@ -48,17 +48,21 @@ print("Elapsed time " + (end_time - start_time)/1000 + "s");
 
 function createMontage() {
 	Stack.getDimensions(width, height, channels, slices, frames);
-	setColor("white");
-	for (i = 1; i <= frames; i++) {
-		Overlay.drawString("t="+i, 2, 14);
+	setColor("black");
+	setFont("Arial",40);
+	for (i = 1; i <= frames; i++) {		
+		Overlay.drawString("t="+i, 2, 40);
 		Overlay.setPosition(0, 0, i);
 		Overlay.add();
 	}
 	Stack.setDisplayMode("composite");
 	run("RGB Color", "frames keep");
+	wait(100);
 	id1=getImageID();
-	run("Flatten", "stack");	
-	run("Make Montage...", "columns=5 rows=2 scale=1");
+	run("Flatten", "stack");
+	n = Math.ceil(sqrt(frames));
+	run("Make Montage...", "columns="+n+" rows="+n+" scale=1");
+	wait(100);
 	id3=getImageID();
 	selectImage(id1); close();	
 	selectImage(id3); 
@@ -318,11 +322,12 @@ function createTest() {
 	run("Roi Defaults...", "color=green stroke=1 group=1 name=cell");
 	run("Roi Defaults...", "color=red stroke=1 group=2 name=foci");
 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
-	width = 200;
-	height = 200;
-	channels = 2;
-	frames = 10;
-	newImage("Test Image", "8-bit black", width, height, channels, 1, 2);
+	width = 400;
+	height = 400;
+	channels = 3;
+	frames = 16;
+	newImage("Test Image", "8-bit white", width, height, channels, 1, 2);
+	Stack.setDisplayMode("composite");
 	Stack.setPosition(1, 1, 1);
 	makeRectangle(width/4, height/4, width/2, height/2);
 	setColor(255);
@@ -332,11 +337,11 @@ function createTest() {
 	setColor(128);
 	run("Fill", "slice");
 	Stack.setPosition(2, 1, 1);
-	makeOval(68, 83, 22, 22);
+	makeOval(0.6*width, 0.6*height, 0.1*width, 0.1*width);
 	setColor(255);
 	run("Fill", "slice");
 	Stack.setPosition(2, 1, 2);
-	makeOval(103, 101, 20, 20);	
+	makeOval(0.8*getWidth, 0.8*getHeight, 0.12*getWidth, 0.12*getWidth);	
 	setColor(255);
 	
 	run("Fill", "slice");
@@ -346,41 +351,48 @@ function createTest() {
 	// define cells at 3 time points
 	Stack.setFrame(1);
 	makeRectangle(width/4, height/4, width/2, height/2);	
-	run("Interpolate", "interval=10 smooth");
+	run("Interpolate", "interval=2 smooth");
 	Roi.setGroup(1);
 	Roi.setName("cell");
 	Roi.setPosition(1, 1, 1);
 	roiManager("add");
 		
-	Stack.setFrame(10);
+	Stack.setFrame(frames);
 	makeOval(width/4, height/4, width/2, height/2);
-	run("Interpolate", "interval=10 smooth");	
+	run("Interpolate", "interval=2 smooth");	
 	Roi.setGroup(1);
 	Roi.setName("cell");
-	Roi.setPosition(1, 1, 10);
+	Roi.setPosition(1, 1, frames);
 	roiManager("add");	
 	
-	Stack.setFrame(5);
-	makePolygon(100,20,70,64,26,64,67,96,43,154,91,121,142,150,116,98,163,72,119,64);
-	run("Interpolate", "interval=10 smooth");
+	Stack.setFrame(round(frames/2));	
+	// draw a star
+	xpts = newArray(10);
+	ypts = newArray(10);
+	for (k = 0; k < 10; k++) {
+		xpts[k] = getWidth*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*cos(2*PI*k/10));
+		ypts[k] = getHeight*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*sin(2*PI*k/10));
+	}
+	makeSelection("polygon",xpts,ypts);
+	run("Interpolate", "interval=2 smooth");
 	Roi.setGroup(1);
 	Roi.setName("cell");
-	Roi.setPosition(1, 1, 5);
+	Roi.setPosition(1, 1, round(frames/2));
 	roiManager("add");
 		
-	// define foci at 3 time points
+	// define foci at 2 time points
 	Stack.setFrame(1);
-	makeOval(68, 83, 22, 22);
+	makeOval(0.4*width, 0.4*height, 0.1*width, 0.1*width);	
 	Roi.setGroup(2);
 	Roi.setName("foci");
 	Roi.setPosition(2, 1, 1);
 	roiManager("add");
 	
-	Stack.setFrame(10);
-	makeOval(103, 101, 20, 20);	
+	Stack.setFrame(frames);		
+	makeOval(0.6*getWidth, 0.6*getHeight, 0.12*getWidth, 0.12*getWidth);	
 	Roi.setGroup(2);
 	Roi.setName("foci");
-	Roi.setPosition(2, 1, 10);
+	Roi.setPosition(2, 1, frames);
 	roiManager("add");	
 	channel_names_csv = "caspase,bodipy";
 	roi_names_csv = "cell,foci";
