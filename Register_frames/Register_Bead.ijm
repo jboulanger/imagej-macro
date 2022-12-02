@@ -1,16 +1,18 @@
-#@String(label="mode",choices={"Track","Motion","Correct"}) mode
+#@String(label="mode",choices={"Track","Motion","Interpolate ROI", "Correct"}) mode
 /*
  * Estimate translation using a bright reference point that is tracked over time or motion estimation
  * 
- * - Selecting a (rectangular) region of the image and run with the Track or Motion mode
+ * - Selecting a (rectangular) region of the image and run with the Track or Motion mode or add a set of 
+ *   RI to the ROI manager to interpolate between them. ROI can be unsorted.
  * - The macro will save displements in a table
  * - Run again with the Correct mode to apply the estimated displacements
  * 
- * Jerome Boulanger 2021 for Florence
+ * Jerome Boulanger 2021 for Florence update for Kashish
  */
 
 if (nImages==0) {
 	createTestImage();
+	print("Run again the macro with track mode.");
 	exit();
 }
 
@@ -18,8 +20,13 @@ setBatchMode(true);
 name = getTitle;
 if (matches(mode, "Motion")) {	
 	estimateMotion();
+	print("Run again the macro with 'correct' mode.");
 } else if (matches(mode, "Track")) {
 	trackBrightSpot();
+	print("Run again the macro with 'correct' mode.");
+} else if (matches(mode, "Interpolate ROI")) {
+	interpolateROI();
+	print("Run again the macro with 'correct' mode.");
 } else {
 	run("Select None");
 	run("Duplicate...", "title=[Stabilized+"+name+"] duplicate");
@@ -31,7 +38,7 @@ setBatchMode(false);
 function correct() {
 	// Correct the drift fromt he stack using the value in the table
 	Stack.getDimensions(width, height, channels, slices, frames);
-	for (k = 2;k <= frames; k++){
+	for (k = 2; k <= frames; k++){
 		showProgress(k,frames);
 		vx = getResult("X", k-1);
 		vy = getResult("Y", k-1);			
@@ -42,12 +49,70 @@ function correct() {
 	}
 }
 
+function interpolateROI() {
+	/*
+	 * Interpolate ROI poition from the ROI manager
+	 * ROI do not need to be in order
+	 */
+	print("\\Clear");	
+	Stack.getDimensions(width, height, channels, slices, frames);
+	print("frames "+ frames);
+	// compute the first and last frame of the ROI
+	n = roiManager("count");
+	T = newArray(n);
+	X = newArray(n);
+	Y = newArray(n);
+	getPixelSize(unit, dx, dy);
+	for (i = 0; i < n; i++) {
+		roiManager("select", i);		
+		Stack.getPosition(channel, slice, frame);
+		T[i] = frame;
+		if (matches(Roi.getType,"point")) {
+			Roi.getCoordinates(xpoints, ypoints);
+			X[i] = xpoints[0];
+			Y[i] = ypoints[0];
+		} else {			
+			X[i] = getValue("X") / dx;
+			Y[i] = getValue("Y") / dy;
+		}		
+	}
+	Array.sort(T,X,Y);
+	t0 = T[0];
+	t1 = T[n-1];	
+	for (t = 1; t <= frames; t++) {
+		r = t - 1;		
+		if (t <= t0) {			
+			setResult("X", r, 0);
+			setResult("Y", r, 0);
+		} else if (t >= t1) {			
+			setResult("X", r, X[n-1] - X[0]);
+			setResult("Y", r, Y[n-1] - Y[0]);
+		} else {	
+					
+			for (i = 0; i < n-2 && T[i] <= t; i++) {}	
+			
+			xa = X[i-1];
+			ya = Y[i-1];
+			ta = T[i-1];
+			
+			xb = X[i];
+			yb = Y[i];			
+			tb = T[i];
+			
+			print("t:"+t+":",i,", ta:"+ta+", tb:"+tb);
+			setResult("X", r, xa + (t - ta) * (xb - xa) / (tb - ta) - X[0]);
+			setResult("Y", r, ya + (t - ta) * (yb - ya) / (tb - ta) - Y[0]);
+		}
+		
+	}
+	updateResults();
+}
+
 
 function trackBrightSpot() {
 	// estimate the drift by tracking a bright over time	
 	run("Duplicate...", "title=tmp duplicate");
-	run("Gaussian Blur 3D...", "x=0.1 y=0.1 z=0.1");
-	run("Median 3D...", "x=1 y=1 z=5");
+	run("Gaussian Blur 3D...", "x=0.5 y=0.5 z=0.1");	
 	run("Subtract Background...", "rolling=10 stack");	
 	
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -138,7 +203,7 @@ function estimateMotion() {
 				Stack.setFrame(j);
 				run("Duplicate...", "title=B use");
 				id2 = getImageID();
-				shift = estimateShift(id1,id2);
+				shift = estimateShift(id1, id2);
 				veloc = sqrt(shift[0]*shift[0]+shift[1]*shift[1]);
 				delta_avg += veloc;
 				delta_max = maxOf(veloc, delta_max);
@@ -152,7 +217,8 @@ function estimateMotion() {
 				Stack.setPosition(1, 1, j);
 				run("Translate...", "x="+-shift[0]+" y="+-shift[1]+" interpolation=Bicubic slice");
 				selectImage(id1);close();
-				selectImage(id2);close();	
+				selectImage(id2);close();
+				
 			}					
 		}
 		delta_avg /= num;
@@ -273,7 +339,7 @@ function createTestImage() {
 	dy = 0;
 	vx = 0;
 	vy = 0;
-	
+	if (isOpen("ROI Manager")) { selectWindow("ROI Manager"); run("Close"); }
 	setColor(255);
 	bxmin = W/2+dx-d/2;
 	bxmax = W/2+dx-d/2;
@@ -281,7 +347,12 @@ function createTestImage() {
 	bymax = H/2+dy-d/2;
 	for (t = 1; t <= T; t++) {
 		setSlice(t);			
-		makeOval(W/2+dx-d/2,H/2+dy-d/2, d, d);		
+		makeOval(W/2+dx-d/2,H/2+dy-d/2, d, d);	
+		roiManager("add");
+		setResult("X", t-1, dx);
+		setResult("Y", t-1, dy);
+		setResult("Real X", t-1, dx);
+		setResult("Real Y", t-1, dy);
 		fill();
 		bxmin = minOf(bxmin, W/2+dx-d/2);
 		bxmin = minOf(bxmin, W/2+dx-d/2);
@@ -289,13 +360,13 @@ function createTestImage() {
 		bxmin = minOf(bxmin, W/2+dx-d/2);
 		for (n = 0; n < N; n++) {
 			makeOval(W/2+dx-d/2+(n/5+W/4)*cos(5.5*2*PI*n/N+t),H/2+dy-d/2+(n/5+H/4)*sin(5.5*2*PI*n/N+t), d, d);		
-			fill();
+			fill();		
 		}
-		dx += vx + 5*(random-0.5);
-		dy += vy + 5*(random-0.5);
+		dx += round(vx + 5*(random-0.5));
+		dy += round(vy + 5*(random-0.5));
 		vx = 0.1*random();
 		vx = 0.1*random();
 	}
 	setSlice(1);
-	makeOval(W/2-d/2,H/2-d/2, d, d);
+	makeOval(W/2-4*d,H/2-4*d, 8*d, 8*d);
 }

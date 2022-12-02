@@ -309,9 +309,10 @@ function getCurve(src,label,field) {
 }
 
 
-// interpolate data in x with L labels over regular time points
-// and measure intensities at the interpolated positions
 function interpolate(x,L) {	
+	/* Interpolate data in x with L labels over regular time points
+	 * and measure intensities at the interpolated positions
+	 */
 	Stack.getDimensions(width, height, channels, slices, frames);
 	y = newArray(L*frames*6);
 	n = getNumEntry(x);

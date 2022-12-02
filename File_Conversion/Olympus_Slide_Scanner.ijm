@@ -1,9 +1,12 @@
-#@File (label="Input file", style="open") ipath
-#@Integer (label="Resolution level", value=1) resolution_level
-#@String (label="Format", choices={"TIFF","PNG"}) format
-#@Integer (label="Channel (png only)", value=4) channel_index
-#@Boolean(label="Skip overview and labels", value=true) skip_overview_label
-#@File (label="Output folder", style="directory") opath
+#@File    (label="Input file", description="Select a .vsi file", style="open") ipath
+#@Integer (label="Resolution level", description="Select a resolution level to export the data (1-6)", value=6) resolution_level
+#@String  (label="Format", choices={"TIFF","PNG"}) format
+#@String  (label="Channels",  description="List channels to export separated by a comma.Type 'all' for including all channels", value="all") channel_csv
+#@String  (label="LUTs", description="List channels to export separated by a comma. Type 'Gray' for all channel in grayscale", values="auto") lut_csv
+#@Boolean (label="Skip overview and labels", description="Skip overview and label images", value=true) skip_overview_label
+#@String  (label="Summary", description="Kind of summary",choices={"Detailed","Short"}) summary
+#@Boolean (label="Dummy run", description="Do not export files",value=false) dummy
+#@File    (label="Output folder", style="directory") opath
 
 
 /*
@@ -15,21 +18,37 @@
  * Jerome for Elena and Ben
  */
 
+default_channels = newArray(1,2,3,4,5,6,7,8,9,10);
+channel_list = parseCSVInt(channel_csv, default_channels);
+
+default_lut = newArray("auto");
+lut_list = parseCSVString(lut_csv, default_lut);
+
 info = parseSeriesNames(ipath);
-//displayInfo(info);
-displaySummary(info);
-exportResolutionLevel(ipath, info, opath, resolution_level, skip_overview_label, format);
+
+if (matches(summary,"Detailed")) {
+	displayInfo(info);
+} else {
+	displaySummary(info);
+}
+
+if (!dummy) {
+	exportResolutionLevel(ipath, info, opath, resolution_level, skip_overview_label, format, channel_list, lut_list);
+}
 
 
-function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, format) {
+function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, format, channel_list, lut_list) {
 	/*
 	 * Export a selected resolution level
+	 * 
 	 * ipath : path to the original file
 	 * info : information structure
 	 * opath : output folder
 	 * level : resolution level
 	 * skip_overview : 1: will skip label, macri image and overview 
 	 * format : file format for saving files (PNG or TIFF)
+	 * channels_list : array with list of channels to keep
+	 * lut_list : list of look up table to apply
 	 */
 	setBatchMode(true);	
 	m = 10; // number of fiels in info
@@ -49,14 +68,22 @@ function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, f
 					selectImage(id0);close();
 					selectImage(id);
 				}
-				Stack.setDisplayMode("grayscale");
-				Stack.setChannel(channel_index);
-				run("Enhance Contrast...", "saturated=0.1");
-				run("8-bit");				
-				ofilename = basename + "_" + IJ.pad(k+1, 3) + ".png";				
+				selectChannels(channel_list, lut_list);
+				if (channel_list.length > 1) {
+					Stack.setDisplayMode("composite");				
+					run("RGB Color");
+				} else {
+					run("8-bit");				
+				}
+				ofilename = basename + "_" + replace(name, ",", "_") + ".png";				
 			} else {
-				ofilename = basename+ "_" + IJ.pad(k+1, 3)+ ".tif";
-			}			
+				selectChannels(channel_list, lut_list);			
+				if (channel_list.length > 1) {		
+					Stack.setDisplayMode("composite");
+				}
+				ofilename = basename+ "_" + replace(name, ",", "_") + ".tif";
+			}
+			print("Saving " + ofilename);
 			saveAs(format, opath + File.separator + ofilename);
 			close();
 			k++;		
@@ -222,3 +249,65 @@ function openSerie(index) {
 	return id;
 }
 
+function selectChannels(channel_list, lut_list) {
+	/*	Select channels from a list and apply a LUT */	 
+	id0 = getImageID();
+	title = getTitle();
+	Stack.getDimensions(width, height, channels, slices, frames);	
+	if (channels > 1) {				
+		run("Stack to Hyperstack...", "order=xyczt(default) channels="+channels+" slices="+slices+" frames=1 display=Color");	
+		title = getTitle();
+		
+		run("Split Channels");
+		wait(100);
+		if (channel_list.length>1) {
+			str = "";
+			for (i = 0;	i < channel_list.length; i++) {
+				ch = channel_list[i];
+				if (ch <= channels) {										
+					str += "c"+(ch)+"=[C"+(ch)+"-"+title+"] ";
+				}
+			}								
+			run("Merge Channels...", str + " create keep");
+		} else {
+			run("Duplicate...", "title=["+title+"] duplicate ");
+		}
+		for (i = 0;	i < channel_list.length; i++) {
+			Stack.setChannel(i+1);
+			lut = lut_list[Math.min(i, lut_list.length-1)];				
+			if (!matches(lut, "auto")) {
+				run(lut_list[Math.min(i, lut_list.length-1)]);
+			}
+			run("Enhance Contrast...", "saturated=0.1");
+		}		
+		for (ch = 1; ch <= channels; ch++) {		
+			selectWindow("C"+ch+"-"+title);
+			close();
+		}						
+	}	
+}
+
+function parseCSVString(csv, default) {	
+	if (matches(csv, "auto")) {
+		values = default;
+	} else {
+		str = split(csv,",");
+		values = newArray(str.length);
+		for (i = 0 ; i < str.length; i++) {
+			values[i] = String.trim(str[i]);
+		}
+	}
+	return values;
+}
+
+function parseCSVInt(csv, default) {	
+	if (matches(csv, "all")) {
+		values = default;
+	} else {
+		str = split(csv,",");
+		values = newArray(str.length);
+		for (i = 0 ; i < str.length; i++) {
+			values[i] = parseInt(str[i]);
+		}
+	}
+	return values;

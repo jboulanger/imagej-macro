@@ -1,11 +1,15 @@
 #@String (label = "Angles", description = "comma separated indices, or all") angles_csv
-
+/*
+ * Parse a sequence of integers separated by comma
+ * 
+ * Jerome Boulanger
+ */
+ 
 default_angles  = newArray(1,2,3,4,5,6,7);
 angles = parseCSVInt(angles_csv, default_angles);
 Array.print(angles);
 
-function parseCSVInt(csv, default) {
-	print(csv);
+function parseCSVInt(csv, default) {	
 	if (matches(csv, "all")) {
 		values = default;
 	} else {
