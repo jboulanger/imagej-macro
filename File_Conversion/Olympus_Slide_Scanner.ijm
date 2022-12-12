@@ -2,12 +2,12 @@
 #@Integer (label="Resolution level", description="Select a resolution level to export the data (1-6)", value=6) resolution_level
 #@String  (label="Format", choices={"TIFF","PNG"}) format
 #@String  (label="Channels",  description="List channels to export separated by a comma.Type 'all' for including all channels", value="all") channel_csv
-#@String  (label="LUTs", description="List channels to export separated by a comma. Type 'Gray' for all channel in grayscale", values="auto") lut_csv
+#@String  (label="LUTs", description="List channels to export separated by a comma. Type 'Grays' for all channel in grayscale, look at the Image>Lookup Tables for other options.", values="auto") lut_csv
 #@Boolean (label="Skip overview and labels", description="Skip overview and label images", value=true) skip_overview_label
 #@String  (label="Summary", description="Kind of summary",choices={"Detailed","Short"}) summary
 #@Boolean (label="Dummy run", description="Do not export files",value=false) dummy
 #@File    (label="Output folder", style="directory") opath
-
+#@String  (label="Tag", description="add a tag to the files",value="") tag
 
 /*
  * Decode a multi resolution VSI file
@@ -33,11 +33,11 @@ if (matches(summary,"Detailed")) {
 }
 
 if (!dummy) {
-	exportResolutionLevel(ipath, info, opath, resolution_level, skip_overview_label, format, channel_list, lut_list);
+	exportResolutionLevel(ipath, info, opath, resolution_level, skip_overview_label, format, channel_list, lut_list, tag);
 }
 
 
-function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, format, channel_list, lut_list) {
+function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, format, channel_list, lut_list, tag) {
 	/*
 	 * Export a selected resolution level
 	 * 
@@ -49,6 +49,7 @@ function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, f
 	 * format : file format for saving files (PNG or TIFF)
 	 * channels_list : array with list of channels to keep
 	 * lut_list : list of look up table to apply
+	 * tag : tag to append to the files
 	 */
 	setBatchMode(true);	
 	m = 10; // number of fiels in info
@@ -75,13 +76,13 @@ function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, f
 				} else {
 					run("8-bit");				
 				}
-				ofilename = basename + "_" + replace(name, ",", "_") + ".png";				
+				ofilename = basename + "_" + replace(name, ",", "_") +   tag + ".png";				
 			} else {
 				selectChannels(channel_list, lut_list);			
 				if (channel_list.length > 1) {		
 					Stack.setDisplayMode("composite");
 				}
-				ofilename = basename+ "_" + replace(name, ",", "_") + ".tif";
+				ofilename = basename+ "_" + replace(name, ",", "_") + tag+ ".tif";
 			}
 			print("Saving " + ofilename);
 			saveAs(format, opath + File.separator + ofilename);
