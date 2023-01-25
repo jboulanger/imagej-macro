@@ -83,13 +83,15 @@ for (s = 0; s < seriesCount; s++) {
 			print("serie " + s + " plane " + z + " channel " + c);
 			Ext.openImage("tmp", c+z*channels);
 			info = getMetadata("Info");
-			run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=None");			
-			run("Rotate 90 Degrees Right");
+			run("Size...", "width="+w+" height="+h+" depth=1 constrain average interpolation=None");					
+			run("Rotate 90 Degrees Right");			
 			run("Copy");
+			wcrop = getWidth();
+			hcrop = getHeight();
 			close();
 			selectImage(id0);
 			Stack.setPosition(c+1, round(zoom * z), 1);
-			makeRectangle(round(zoom*X[s]), round(zoom*Y[s]), w, h);
+			makeRectangle(round(zoom*X[s]), round(zoom*Y[s]), wcrop, hcrop);
 			run("Paste");
 		}
 	}
