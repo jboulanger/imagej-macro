@@ -1,7 +1,7 @@
 #@File (label="Input file", style="open") filename
-#@String (label="Channels", value="all", description="Use Duplicate formateg 1-3 or all") channel
-#@String (label="Slices", value="all", description="Use Duplicate format eg 1-2 or all") slice
-#@String (label="Frames", value="all", description="Use Duplicate format eg 1-10 or all") frame
+#@String (label="Channels", value="all", description="Use 'Make Subset' format eg 1-3 / 1,4,6 or all") channel
+#@String (label="Slices", value="all", description="Use 'Make Subset' format eg 1-2 or all") slice
+#@String (label="Frames", value="all", description="Use 'Make Subset' format eg 1-10 or all") frame
 #@String (label="Series", value="all", description="Extract series, use 'all' to extract all, 'last' to extract the last one") serie
 #@Boolean (label="Maximum Intensity Projection", value=false, description="Perform a MIP on the image") mip
 #@Boolean (label="Split channels", value=false, description="split channels") split_channels
@@ -128,9 +128,8 @@ function processImage(channel, slice, frame, mip, mode) {
 		if (matches(frame, "all")) {
 			frame = "1-"+frames;
 		}
-		args = "channels="+channel+" slices="+slice+" frames="+frame;
-		print(args);
-		run("Duplicate...", "duplicate " + args);
+		args = "channels="+channel+" slices="+slice+" frames="+frame;		
+		run("Make Subset...",args");		
 		id1 = getImageID();
 		selectImage(id0);close();
 		selectImage(id1);

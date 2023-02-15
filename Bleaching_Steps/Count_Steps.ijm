@@ -2,7 +2,10 @@
 //@Float(label="Sensor gain", value=0.25) gain0
 //@Float(label="Sensor offset", value=100) offset0
 //@Float(label="Sensor readout", value=1) sigma0
+//@Float(label="Noise factor", value=1) noise_factor
+//@Boolean(label="Tracking", value=true) do_track
 //@Integer(value=10) iterations
+
 
 /*
  * Counting bleaching steps
@@ -11,7 +14,7 @@
  * Input can be a tif + zip file with ROIs or a csv file with signals.
  * 
  * If an image is opened and the input is not ending in csv or tif, process the current image and rois.
- * If there is only one ROI a grpahis produced at the end.
+ * If there is only one ROI a figure  produced at the end.
  * 
  * Output:
  * It outputs two tables
@@ -55,8 +58,8 @@ if (endsWith(input, ".csv")) {
 } else {
 	process_active_image();
 }
+setBatchMode("exit and display");
 
-setBatchMode("show");
 print("Elapsed time " + (getTime() - start_time)/1000 + " seconds.");
 
 function process_active_image() {
@@ -77,11 +80,15 @@ function process_active_image() {
 		showProgress(i, N-1);
 		roiManager("select", i);
 		roiname = Roi.getName;
-		f0 = getSignal(i, frames);
+		if (do_track) {
+			f0 = getSignalFit(i, frames, offset0, 2);			
+		} else {
+			f0 = getSignal(i, frames);
+		}			
 		f1 = gat(f0, gain0, offset0, sigma0);
-		sigma = estimateNoiseStd(f1);
+		sigma = noise_factor*estimateNoiseStd(f1);
 		u1 = smoothSteps(f1, sigma, iterations);
-		u0 = igat(u1,  gain0, offset0, sigma0);		
+		u0 = igat(u1,  gain0, offset0, sigma0);				
 		saveResult(tbl2, roiname, f0, u0);		
 		summarizeSteps(tbl3, i, roiname, u0, sigma);		
 	}
@@ -117,7 +124,7 @@ function process_csv(input) {
 		print(headings[i]);
 		f0 = Table.getColumn(headings[i]);
 		f1 = gat(f0, gain0, offset0, sigma0);
-		sigma = estimateNoiseStd(f1);
+		sigma = noise_factor*estimateNoiseStd(f1);
 		u1 = smoothSteps(f1, sigma, iterations);
 		u0 = igat(u1,  gain0, offset0, sigma0);		
 		saveResult(tbl2, headings[i], f1, u1);
@@ -154,7 +161,7 @@ function process_tif_and_roi(input) {
 		roiname = Roi.getName;
 		f0 = getSignal(i, frames);
 		f1 = gat(f0, gain0, offset0, sigma0);
-		sigma = estimateNoiseStd(f1);
+		sigma = noise_factor*estimateNoiseStd(f1);
 		u1 = smoothSteps(f1, sigma, iterations);
 		u0 = igat(u1,  gain0, offset0, sigma0);		
 		saveResult(tbl2, roiname, f0, u0);
@@ -266,7 +273,7 @@ function makeFigure(f,u) {
 	 */
 	x = Array.getSequence(f.length);
 	Plot.create("Bleaching steps", "Frame", "Intensity");
-	Plot.setColor("black");
+	Plot.setColor("#AAAAAA");
 	Plot.setLineWidth(1);
 	Plot.add("line", x, f);
 	
@@ -281,13 +288,82 @@ function getSignal(idx, n) {
 	 *  idx (number) : index of the ROI
 	 *  n (number) : number of frames
 	 */
-	f = newArray(n);
+	getPixelSize(unit, pw, ph);
+	f = newArray(n);	
 	for (i = 0; i < n; i++) {
 		roiManager("select", idx);
 		Stack.setFrame(i + 1);
-		f[i] = getValue("Mean");
-	}	
+		f[i] = getValue("Mean");		
+	}
+	bg = newArray(n);
+	roiManager("select", idx);
+	run("Make Band...", "band="+pw);
+	for (i = 0; i < n; i++) {
+		roiManager("select", idx);
+		Stack.setFrame(i + 1);
+		f[i] = getValue("Mean");		
+	}
+	
 	return f;
+}
+
+function getSignalFit(idx,n,bg,sigma) {
+	roiManager("select", idx);
+	x = getValue("X");
+	y = getValue("Y");
+	position = newArray(x,y,bg,sigma,1);
+	f = newArray(n);	
+	for (i = 0; i < n; i++) {
+		Stack.setFrame(i + 1);
+		position = estimateSpotParameters(position);
+		f[i] = bg + position[4];
+		makePoint(position[0], position[1]);
+		Overlay.addSelection;
+		Overlay.setPosition(i+1);
+		Overlay.show;
+		
+	}
+	return f;
+}
+
+function estimateSpotParameters(position) {
+	x = position[0];
+	y = position[1];
+	bg = position[2];
+	sigma = position[3];
+	h = Math.ceil(3 * sigma);
+	N = 10;
+	for (i = 1; i < N; i++) {
+		swx = 0;
+		swy = 0;
+		sw = 0;
+		swb = 0;
+		sb = 0;
+		n = 0;
+		for (yi = y - h; yi <= y + h; yi+=0.5) {
+			for (xi = x - h; xi <= x + h; xi+=0.5) {
+				dx = (xi - x) / sigma;
+				dy = (yi - y) / sigma;
+				w0 = exp(-0.5*(dx*dx+dy*dy));
+				I = getPixel(xi, yi);
+				w = w0 * maxOf(0, I - bg);
+				swx += w * xi;
+				swy += w * yi;
+				sw += w;
+				n += w0;
+				sb += (1 - w0) * I;
+				swb += (1 - w0);
+			}
+		}
+		if (sw / n > 10)  {
+			x = swx / sw;
+			y = swy / sw;
+		}
+		if (swb > 1) {
+			bg = sb / swb;
+		}
+	}
+	return newArray(x,y,bg,sigma,sw/n);
 }
 
 function smoothSteps(f,sigma,niter) {
