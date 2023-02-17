@@ -7,47 +7,63 @@
  * - Convert the labels to ROIs
  * - Compute the colocalization coefficients in the ROIs
  * 
+ * Requires CSBDeep, StartDist and MorpholibJ
+ * 
  * Jerome Boulanger for Leonor 2023
  */
   
  channel_names = parseCSVString(channel_names_str);
-  
+ Overlay.remove;
+ run("Select None");
  id = getImageID();
  setBatchMode("hide");
  segment_nuclei(id, 1);
  colocalization(id, channel_names);
  addROIsToOverlay(id);
  setBatchMode("exit and display");
+ run("Collect Garbage");	
+ run("Select None");
+ for (c = 1; c <= nSlices; c++) {
+ 	Stack.setChannel(c);
+ 	run("Enhance Contrast", "saturated=0.15");
+ }
+ Stack.setDisplayMode("composite");
  
- function segment_nuclei(id,channel) {
- 	print("Segmentation");
+ function segment_nuclei(id,channel) { 	
+ 	print("Segmentation [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	selectImage(id);
  	run("Duplicate...", "title=dapi duplicate channels="+channel);
  	nuc = getImageID();
- 	print("Running StarDist");
+ 	print("Running StarDist [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	run("Square Root");
  	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'dapi','modelChoice':'DSB 2018 (from StarDist 2D paper)', 'normalizeInput':'true', 'percentileBottom':'5.0', 'percentileTop':'95.0', 'probThresh':'0.5', 'nmsThresh':'0.4', 'outputType':'Label Image', 'nTiles':'9', 'excludeBoundary':'0', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]"); 	
 
- 	print("Creating  a mask");
+ 	print("Creating  a mask [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	mask = createMask(id);
 
- 	print("Running Watershed");
+ 	print("Running Watershed [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	selectImage("Label Image"); 
  	run("Marker-controlled Watershed", "input=[Label Image] marker=[Label Image] mask=[Mask] compactness=0 calculate use");
+ 	run("Collect Garbage");	
  	
- 	print("Creating ROIs");
+ 	print("Creating ROIs [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	nlabels = getValue("Max");
  	print("Number of regions " + nlabels);
- 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
+ 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");} 	
+ 	getPixelSize(unit, pixelWidth, pixelHeight);
+	a = getWidth() * getHeight() * pixelWidth * pixelHeight;
  	for (i = 1; i <= nlabels; i++) {
- 		setThreshold(i,i);
+ 		setThreshold(i,i); 		
  		run("Create Selection");
- 		roiManager("add");
+ 		if (getValue("Area") < a) {
+ 			roiManager("add");
+ 		}
  	} 	
  	selectImage(nuc); close();
  	selectImage(mask); close();
  	selectImage("Label Image"); close();
  	selectImage("Label Image-watershed"); close();
+ 	run("Collect Garbage");	
 }
 
 function createMask(id) {
@@ -95,7 +111,7 @@ function parseCSVString(csv) {
 }
 
 function colocalization(id, names) {
-	print("Colocalization");
+	print("Colocalization [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
 	selectImage(id);
 	Stack.getDimensions(width, height, channels, slices, frames);
 	n = roiManager("count");
@@ -114,8 +130,7 @@ function colocalization(id, names) {
 				
 			}
 		}
-	}
-	
+	}	
 }
 
 function getIntensities() {
