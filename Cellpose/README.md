@@ -1,6 +1,6 @@
 # Cellpose in Fiji
 
-This macro runs the cellpose segmentation algorithm on the current image and load the regions as regions in the ROI manager.
+This macro runs the [cellpose](https://www.nature.com/articles/s41592-020-01018-x) segmentation algorithm  on the current image and load the regions as regions in the ROI manager.
 
 It requires to install cellpose first, then to point to the installation path.
 
