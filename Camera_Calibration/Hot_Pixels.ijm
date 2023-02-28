@@ -15,7 +15,8 @@ function correct_hotpixels() {
 	selectImage(id);
 	run("Duplicate...", "title=med duplicate");	
 	med = getImageID();
-	run("Median...", "radius=1 stack");
+	//run("Median...", "radius=3 stack");
+	run("Median 3D...", "x=3 y=3 z=2");
 	// create a mask
 	selectImage(id);
 	run("Duplicate...", "title=mask duplicate");	
@@ -28,7 +29,7 @@ function correct_hotpixels() {
 	} else {
 		getStatistics(area, mean, min, max, std, histogram);
 	}
-	t = 3 * std;	
+	t = 2 * std;	
 	run("Macro...", "code=v=abs(v)<"+t+" stack");	
 	imageCalculator("Multiply stack", id, mask);
 	// invert the mask

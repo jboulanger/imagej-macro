@@ -20,6 +20,7 @@
  segment_nuclei(id, 1);
  colocalization(id, channel_names);
  addROIsToOverlay(id);
+ mapColocalization(channel_names);
  setBatchMode("exit and display");
  run("Collect Garbage");	
  run("Select None");
@@ -64,6 +65,34 @@
  	selectImage("Label Image"); close();
  	selectImage("Label Image-watershed"); close();
  	run("Collect Garbage");	
+}
+
+function mapColocalization(names) {
+	/* Create a colocalization map */
+	Stack.getDimensions(width, height, channels, slices, frames);
+	m = channels * (channels - 1) / 2;	
+	n = roiManager("count");
+	cc = 1;
+	str = "";
+	 for (c1 = 1; c1 <= channels; c1++) {
+	 	for (c2 = c1 + 1; c2 <= channels; c2++) {
+	 		cname = "PCC ["+names[c1-1]+":"+names[c2-1]+"]";
+	 		values = Table.getColumn(cname);
+	 		newImage("PCC "+names[c1-1]+":"+names[c2-1], "32 bit black", width, height, 1, slices, frames);	 			 		
+	 		for (i = 0; i < n; i++) {
+	 			roiManager("select", i);	 			
+	 			setColor(values[i]);
+	 			fill();
+	 		}		
+	 		cc = cc + 1;
+	 		str = str + "c"+cc+"="+"[PCC "+names[c1-1]+":"+names[c2-1]+"]";
+	 		setMinAndMax(-1, 1);
+	 		run("Fire");
+	 	}
+	 }
+	 run("Select None");
+	 run("Merge Channels...", str + " create");
+	 rename("Colocalization map");	 
 }
 
 function createMask(id) {
@@ -126,8 +155,7 @@ function colocalization(id, names) {
 				Stack.setChannel(c2);
 				I2 = getIntensities();
 				pcc = pearson(I1, I2);				
-				Table.set("PCC ["+names[c1-1]+":"+names[c2-1]+"]", i, pcc[0]);
-				
+				Table.set("PCC ["+names[c1-1]+":"+names[c2-1]+"]", i, pcc[0]);				
 			}
 		}
 	}	
