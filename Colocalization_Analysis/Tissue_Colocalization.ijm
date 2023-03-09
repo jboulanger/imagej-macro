@@ -1,4 +1,4 @@
-//@String(label="channel names") channel_names_str
+//@String(label="channel names",value="A,B,C", description="comma separated list of names") channel_names_str
 /*
  * Analysis of colocalization coefficient in a tissue
  * 
@@ -11,6 +11,12 @@
  * 
  * Jerome Boulanger for Leonor 2023
  */
+ 
+ print("Development /!\\");
+ run("Close All");
+ if (nImages==0) {
+ 	createTestImage();
+ }
   
  channel_names = parseCSVString(channel_names_str);
  Overlay.remove;
@@ -30,7 +36,7 @@
  }
  Stack.setDisplayMode("composite");
  
- function segment_nuclei(id,channel) { 	
+ function segment_nuclei(id, channel) { 	
  	print("Segmentation [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	selectImage(id);
  	run("Duplicate...", "title=dapi duplicate channels="+channel);
@@ -234,4 +240,48 @@ function manders(x1,x2,y1,y2,t1,t2) {
 	m2 = s21 / s2;
 	moc = moc12 / sqrt(moc1 * moc2);
 	return newArray(m1,m2,moc,n1,n2,n12,s1/n1,s2/n2,s12/n12,s21/n12);
+}
+
+
+function createTestImage() {
+	run("Close All");
+	n = 512;
+	nb = 7;
+	d = 40;
+	newImage("HyperStack", "32-bit color-mode", n, n, 3, 1, 1);
+	for (i = 0; i < nb; i++) {
+		for (j = 0; j < nb; j++) {
+			Stack.setChannel(1);		
+			setColor(255);
+			makeOval((i+0.15+0.3*random)*n/nb, (j+0.15+0.3*random)*n/nb, d, d);
+			fill();
+			if (random > 0.1) {
+				Stack.setChannel(2);		
+				setColor(255);
+				makeRectangle(i*n/nb+1, j*n/nb+1, n/nb-2, n/nb-2);
+				fill();
+			} else {			
+				if (random > 0.5) {
+					Stack.setChannel(3);		
+					setColor(255);
+					makeRectangle(i*n/nb+3, j*n/nb+3, n/nb-6, n/nb-6);
+					fill();
+				}
+			}
+		}
+	}
+	run("Select None");
+	run("Gaussian Blur...", "sigma=5 stack");
+	luts = newArray("Blue","Green","Red");
+	for (c = 1; c <= 3; c++) {
+		Stack.setChannel(c);
+		resetMinAndMax();		
+	}
+	run("8-bit");
+	
+	Stack.setDisplayMode("composite");
+	for (c = 1; c <= 3; c++) {
+		Stack.setChannel(c);
+		run(luts[c-1]);
+	}
 }
