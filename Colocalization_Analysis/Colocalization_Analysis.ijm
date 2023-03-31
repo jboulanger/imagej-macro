@@ -71,6 +71,7 @@
  * Jerome Boulanger for Yohei 2021
  */
  
+
 print("\\Clear");
 // Initialization
 if (nImages==0) {
@@ -89,7 +90,7 @@ if (roiManager("count")==0) {
 }
 
 imagename = getTitle();
-
+Overlay.remove();
 setBatchMode("hide");
 channels = parseCSVnumbers(channel_str);
 if (!checkChannels(channels)) {exit;}
@@ -107,11 +108,11 @@ children_channel = getROIChannels(children);
 measureColocalization(tblname, img1, img2, channels, thresholds, parents, children, children_channel, onoriginal, channel_names);
 selectImage(img2); close();
 run("Make Composite");
-setBatchMode("exit and display");
 selectImage(img1);
 addOverlays(children, children_channel, colors);
 removeROI(children);
 roiManager("show all without labels");
+setBatchMode("exit and display");
 print("Done");
 
 function getColors(str) {
@@ -232,6 +233,7 @@ function preprocess(id0, preprocess_type, scale) {
 		run("Select None");
 		run("Duplicate...","title=tmp duplicate");
 		run("32-bit");		
+		run("Square Root", "stack");		
 		run("Gaussian Blur...", "sigma=0.25 scaled stack");
 		run("Subtract Background...", "rolling="+5*scale+" stack");
 		run("Median...", "radius="+scale+" stack");

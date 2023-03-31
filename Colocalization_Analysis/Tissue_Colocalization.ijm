@@ -1,12 +1,29 @@
-//@String(label="channel names",value="A,B,C,D", description="comma separated list of names") channel_names_str 
+//@File(label="Input file") filename
+//@String(label="Channel names",value="A,B,C,D", description="comma separated list of names") channel_names_str 
 //@Integer(label="Channel with nuclei labeling for segmentation", value=1) channel_nuclei
+//@String(label="Reference channel",value="B", description="name of the reference channel (comma separated)") references_str
+//@String(label="Combined channels code",value="A+:B+,C+:D+", description="comma separated list of codes eg A+:B+,A+:B-") codes_str
 
-channel_nuclei = 1;
+/* 
+ * Tissue colocalization
+ * 
+ * Compute the distance of cells positives in marker the reference channel to 
+ * cell positive to a combination of markers (code)
+ * 
+ * Codes syntax: A+:B+,A+:B-
+ * 
+ * Installation
+ * CSBDeep, Startdist, IJPB-plugins
+ * 
+ * Jerome for Leonor 2023
+ */
+ 
+do_pcc=false;
+start_time = getTime();
+print("\\Clear");
 run("Close All");
-open("/home/jeromeb/Desktop/smallcrop.tif");
-
-makePolygon(480,57,84,53,80,440,349,435,488,278,480,154);
-
+open(filename);
+Overlay.remove();
 filename = getTitle();
 tbl1 = "Measure per ROI.csv";
 tbl2 = "Summary.csv";
@@ -15,21 +32,48 @@ closeWindow("ROI Manager");
 id = getImageID();
 
 setBatchMode("hide");
+
 channel_names = parseCSVString(channel_names_str);
+references =  parseCSVString(references_str);
+codes =  parseCSVString(codes_str);
+
+print("Input image: " + filename);
+print("Channel names: " + array2csv(channel_names));
+print("Reference channels: " + array2csv(references));
+print("Combined channels: " + array2csv(codes));
+
 cropActiveSelection();
-rois = segmentNuclei(id, channel_nuclei);
 
-measureInROI(tbl1, id, rois, channel_names);
+// segment cells based on nuclei
+run("Select None"); 
+amax = getValue("Area");
+labels = segmentNuclei(id, channel_nuclei, 100, amax);
 
-masks = mapPostiveROIs(id, rois);
+rois = createROIfromLabels(labels); 	
 
-recordPositiveROIs(tbl1, masks, rois);
+// segment positive cells
+//masks = mapPostiveROIs(id, rois);
 
-measureROIdistanceToLabels(tbl1, masks, rois);
+masks =  mapPositiveLabels(id, labels);
 
-summarizeTable(tbl1, tbl2, filename, channel_names);
+// basic measurement for each segmented ROI
+measureInROI(tbl1, id, rois, channel_names, do_pcc);
+
+// record positive channels
+positive = recordPositiveROIs(tbl1, masks, rois, channel_names);
+
+// decode rois based on segmented cells  
+//decoded = decodeROIChannels(masks, rois, positive, channel_names, codes);
+decoded = decodeChannelsOld(masks, channel_names, codes);
+
+measureROIdistanceToLabels(tbl1, decoded, rois, codes);
+
+summarizeTable(tbl1, tbl2, filename, references, channel_names, codes);
 
 selectImage(masks); close();
+selectImage(labels); close();
+selectWindow("Codes");close();
+//selectWindow("median");close();
 
 selectImage(id);
 run("Select None");
@@ -37,10 +81,21 @@ addROIsToOverlay(id, rois);
 run("Collect Garbage");	
 run("Select None");
 setBatchMode("exit and display");
-print("Done");
- 
+print("Done in " + (getTime() - start_time) / 1000 + " seconds.");
+run("Collect Garbage");	
 
-function segmentNuclei(id, channel) {
+function array2csv(array) {
+	str="";
+	for (i = 0; i < array.length; i++) {
+		str += array[i];
+		if (i < array.length-1) {
+			str += ",";
+		}
+	}	
+	return str;
+}
+
+function segmentNuclei(id, channel, min_area, max_area) {
  	/*
  	 * Segment nuclei using stardist, remove background and grow regions.
  	 * Segmented regions are added to the ROI manager
@@ -50,7 +105,6 @@ function segmentNuclei(id, channel) {
  	name = getTitle();
  	selectImage(id);
  	run("Select None");
- 	print(name); 	
 
  	print("Creating  a mask [ mem:" + round(IJ.currentMemory()/1e6)+"MB]"); 	 
  	mask = createBackgroundMask(id, 10); 	 	
@@ -59,10 +113,15 @@ function segmentNuclei(id, channel) {
  	run("Select None");
  	selectImage(id);
  	run("Duplicate...", "title=dapi duplicate channels="+channel);
+	run("32-bit");
  	nuc = getImageID();
- 	run("Square Root");
- 	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'dapi','modelChoice':'DSB 2018 (from StarDist 2D paper)', 'normalizeInput':'true', 'percentileBottom':'5.0', 'percentileTop':'95.0', 'probThresh':'0.5', 'nmsThresh':'0.4', 'outputType':'Label Image', 'nTiles':'9', 'excludeBoundary':'0', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
-	selectImage("Label Image"); label = getImageID(); 	
+	run("Square Root");
+	run("Minimum...", "radius=5");
+	run("Maximum...", "radius=5");
+	run("Enhance Contrast", "saturated=0.35");
+	run("Subtract Background...", "rolling=50 stack");
+	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'dapi','modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'5.0', 'percentileTop':'95.0', 'probThresh':'0.2', 'nmsThresh':'0.1', 'outputType':'Label Image', 'nTiles':'25', 'excludeBoundary':'0', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
+ 	selectImage("Label Image"); label = getImageID(); 	
 	run("Remap Labels");
 	
  	print("Running Watershed [ mem:" + round(IJ.currentMemory()/1e6)+"MB]"); 
@@ -73,18 +132,22 @@ function segmentNuclei(id, channel) {
 	
  	run("Marker-controlled Watershed", "input=[Input] marker=[Label Image] mask=[Mask] compactness=0 calculate use");
  	selectImage("Input-watershed"); watershed = getImageID();
- 	run("Remap Labels");
- 	run("Collect Garbage");	
  	
- 	print("Creating ROIs [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
- 	run("Select None"); 
- 	amax = getValue("Area");
- 	rois = createROIfromLabels(100, amax); 	
+ 	run("Label Size Filtering", "operation=Greater_Than size="+min_area);
+ 	minid = getImageID();
  	
- 	closeImageList(newArray(nuc,mask,label,input,watershed)); 	
- 	run("Collect Garbage");
+	run("Label Size Filtering", "operation=Lower_Than size="+max_area);
+	maxid = getImageID();
+ 		 		 		 	
+	run("Label Morphological Filters", "operation=Dilation radius=1");
+	run("Remap Labels");
+	rename("labels");
+	dilated = getImageID();
+	
+ 	closeImageList(newArray(nuc,mask,label,input,watershed,minid,maxid)); 	
  	
- 	return rois;
+ 	selectImage(dilated);
+ 	return dilated;
 }
 
 function createBackgroundMask(id, percentile) {
@@ -128,7 +191,7 @@ function isSelectionAllImage() {
 
 function calculatePercentile(percentage) {
 	/* Compute a threshold based on a percentile of the image intensity */	
-	if (bitDepth()==8) {
+	if (bitDepth() == 8) {
 		nbins= 255;
 		getHistogram(values, counts, nbins);
 	} else {		
@@ -149,72 +212,87 @@ function calculatePercentile(percentage) {
 }
 
 function calculateThreshold() {
-	/* Compute a threshold based on a percentile of the image intensity */
-	
+	/* Compute a threshold based on a percentile of the image intensity */	
 	return getValue("Median") + getValue("StdDev");		
 }
 
-function createROIfromLabels(area_min, area_max) {
+function createROIfromLabels(id) {
 	/*
 	 * Create ROI from labels
 	 */
-	nlabels = getValue("Max");
- 	print("Number of regions " + nlabels); 	
- 	rois = newArray(nlabels);
+	print("Creating ROIs [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
+	selectImage(id);	
+	nlabels = getValue("Max");	
+ 	print("  number of labels " + nlabels);
+ 	n0 = roiManager("count"); 	
  	n = 0;
- 	for (i = 1; i <= nlabels; i++) {
- 		run("Select None");
- 		setThreshold(i,i);
+ 	rois = newArray(nlabels);
+ 	for (i = 0; i < nlabels; i++) {
+ 		if (i % 10 == 0) {
+ 			showProgress(i, nlabels);
+ 			showStatus("!creating in rois " + i + "/" + nlabels);
+ 		}
+ 		setThreshold(i+0.75, i+1.25);
  		run("Create Selection");
- 		area = getValue("Area");
- 		if (area > area_min && area < area_max) { 			
+ 		if (Roi.size > 0) {
  			roiManager("add");
- 			roiManager("select", roiManager("count")-1);
- 			roiManager("remove slice info");
- 			roiManager("rename", "ROI-"+n+1); 			
- 			rois[n] = roiManager("count")-1;
+ 			roiManager("remove slice info");	
+ 			rois[i] = n0 + i;
  			n++;
  		}
+ 		resetThreshold();
  	}
- 	return Array.trim(rois, n);
+ 	rois = Array.trim(rois, n-1);
+ 	print("  number of Rois " + rois.length);
+ 	return rois;
 }
 
-function measureInROI(tbl, id, rois, channel_names) {
+function measureInROI(tbl, id, rois, channel_names, do_pcc) {
 	/*
 	 * Measurement for each ROI over all chanels.
 	 * - Mean
 	 * - Area
 	 * - Colocalization
 	 */
-	 print("Measure in ROIs");	 
+	 if (do_pcc) {
+	 	print("Measure in "+rois.length+" ROIs [area,centroid,mean,pcc]");	 
+	 } else {
+	 	print("Measure in "+rois.length+" ROIs [area,centroid,mean]");	 
+	 }
 	 Table.create(tbl1);
+	 selectImage(id);	 
 	 Stack.getDimensions(width, height, channels, slices, frames);
-	 	 
-	 for (i = 0; i < rois.length; i++) {
-	 	roiManager("select", rois[i]);
-	 	Table.set("Index", i, Roi.getName);
+	 
+	
+ 	selectImage(id);	
+ 	selectWindow(tbl1);
+ 	for (i = 0; i < rois.length; i++) {	 		
+	 	if (i % 10 == 0) {
+	 		
+	 		showProgress(i+1, rois.length);
+	 		showStatus("measure in rois " + i + "/" + rois.length);
+	 	}
+	 	
+	 	roiManager("select", rois[i]);		 	
+	 	Table.set("Name", i, Roi.getName);
 	 	
 	 	// Area
 	 	Table.set("Area", i, getValue("Area"));
 	 	
-	 	// Mean in each channel
-	 	for (c1 = 1; c1 <= channels; c1++) {
-	 		Stack.setChannel(c1);
+	 	// location		 	
+	 	Table.set("X", i, getValue("X"));
+	 	Table.set("Y", i, getValue("Y"));		 	
+ 	}
+ 
+	 // Mean in each channel		 
+	 for (c1 = 1; c1 <= channels; c1++) {
+	 	Stack.setChannel(c1);
+	 	for (i = 0; i < rois.length; i++) {
+	 		roiManager("select", rois[i]);
 	 		Table.set("Mean ["+channel_names[c1-1]+"]", i, getValue("Mean"));	 	 		
 	 	}
-	 	
-	 	// colocalization	 	
-	 	for (c1 = 1; c1 <= channels; c1++) {
-			Stack.setChannel(c1);
-			I1 = getIntensities();
-			for (c2 = c1+1; c2 <= channels; c2++) {
-				Stack.setChannel(c2);
-				I2 = getIntensities();
-				pcc = pearson(I1, I2);				
-				Table.set("PCC ["+channel_names[c1-1]+":"+channel_names[c2-1]+"]", i, pcc[0]);				
-			}
-	 	}
-	 }
+ 	} 	
+	  
 	 Table.update;
 	 run("Collect Garbage");	
 }
@@ -270,8 +348,29 @@ function computeRobustThresholdOnArray(values, alpha) {
 	return m + alpha * tmp[round(tmp.length/2)];	
 }
 
-function measureROIdistanceToLabels(tbl, id, rois) {
+function filterOutRois(rois,keep) {
+	/*
+	 * filter our ROIs
+	 * 
+	 */
+	 dst = newArray(rois.length);
+	 k = 0;
+	 for (i = 0; i < rois.length; i++) {
+	 	if (keep[i]) {
+	 		dst[k] = rois[i];
+	 		k++;
+	 	}
+	 }
+	 return Array.trim(dst,k);	 
+}
+
+function measureROIdistanceToLabels(tbl, id, rois, channel_names) {
+	/*
+	 * Record distance of each ROIs to the labels in id
+	 */
+	print("Record distance to labels");
 	selectImage(id);
+	print("Distance to " + getTitle());
 	run("Options...", "iterations=1 count=1 edm=32-bit do=Nothing");	
 	run("Distance Map", "stack");	
 	Stack.getDimensions(width, height, nchannels, nslices, nframes);
@@ -287,7 +386,7 @@ function measureROIdistanceToLabels(tbl, id, rois) {
 	run("Collect Garbage");	
 }
 
-function recordPositiveROIs(tbl, id, rois) {
+function recordPositiveROIs(tbl, id, rois, channel_names) {
 	/*
 	 * Fill the table with a flag telling if the cell is positive in this channel
 	 * Parameters:
@@ -299,6 +398,7 @@ function recordPositiveROIs(tbl, id, rois) {
 	 */
 	selectImage(id);
 	Stack.getDimensions(width, height, nchannels, nslices, nframes);
+	values = newArray(rois.length * nchannels);
 	for (c = 1; c <= nchannels; c++) {
 		for (i = 0; i < rois.length; i++) {
 			roiManager("select", i);
@@ -306,13 +406,52 @@ function recordPositiveROIs(tbl, id, rois) {
 			v = getValue("Mean");
 			if (v > 128) {				
 				Table.set("Positive [" + channel_names[c-1]  + "]", i, 1);
+				values[i+c*rois.length] = 1;
 			} else {
 				Table.set("Positive [" + channel_names[c-1] + "]", i, 0);
+				values[i+c*rois.length] = 0;
 			}
 		}
 	}
 	Table.update;
+	return values;	
 }
+
+
+function mapPositiveLabels(id, labels) {
+	/*
+	 * Create a map of positive ROI using a background sutraction and Otsu threshold 
+	 * 
+	 */
+	
+	selectImage(labels);
+	labelsname = getTitle();
+	selectImage(id);
+	Stack.getDimensions(width, height, nchannels, nslices, nframes);
+	str =  "";
+	for (c = 1; c <= nchannels; c++) {		
+		selectImage(id);
+		run("Duplicate...", "title=tmp duplicate channels="+c);
+		run("Subtract Background...", "rolling=25 stack");
+		run("Intensity Measurements 2D/3D", "input=tmp labels=["+labelsname+"] median mean");		
+		vals = Table.getColumn("Mean");
+		Array.getStatistics(vals, min, max, mean, stdDev);
+		selectImage(labels);
+		call("inra.ijpb.plugins.LabelToValuePlugin.process", "Table=tmp-intensity-measurements", "Column=Median", "Min="+min, "Max="+max);
+		rename("C"+c+"-median");
+		str += "c"+c+"=C"+c+"-median ";
+		selectWindow("tmp-intensity-measurements"); run("Close");		
+		selectWindow("tmp"); close();
+	}
+	//print(str);
+	run("Merge Channels...", str +" create");	
+	rename("median");
+	run("Duplicate...", "title=positive duplicate");
+	run("Convert to Mask", "method=Otsu background=Dark calculate");
+	run("Select None");
+	return getImageID();
+}
+
 
 function mapPostiveROIs(id, rois) {
 	/*
@@ -324,9 +463,9 @@ function mapPostiveROIs(id, rois) {
 	 * 
 	 * Returns: the id of the map Image
 	 */
-	
+	print("Map positives");
 	run("Select None");
-	run("Duplicate...", "title=positive duplicate");
+	run("Duplicate...", "title=median duplicate");
 	Stack.setDisplayMode("grayscale");		
 	run("Subtract Background...", "rolling=50 stack");		
 	id1 = getImageID();		
@@ -334,9 +473,9 @@ function mapPostiveROIs(id, rois) {
 	for (c = 1; c <= nchannels; c++) {
 		for (i = 0; i < rois.length; i++) {
 			roiManager("select", rois[i]);
-			run("Enlarge...", "enlarge=-1");
+			run("Enlarge...", "enlarge=1");
 			Stack.setChannel(c);
-			v = getValue("Median");
+			v = getValue("Mean");
 			setColor(v);
 			fill();
 		}
@@ -347,14 +486,182 @@ function mapPostiveROIs(id, rois) {
 		setColor(0); fill();
 		setMinAndMax(0, 255);
 	}
-	run("Convert to Mask", "method=Otsu background=Dark calculate");	
-	return id1;
+	run("Duplicate...", "title=positive duplicate");
+	run("Convert to Mask", "method=Otsu background=Dark calculate");
+	run("Select None");
+	return getImageID();
 }
 
-function summarizeTable(src, dst, filename, channel_names) {
+
+function decodeROIChannels(src, rois, values, channel_names, codes) {
+	/*
+	 * Decode channels based on a list of code ROI by ROI
+	 * 
+	 * Parameters
+	 *  src: id of the input image
+	 *  channel_names : list of channel names in the order 
+	 *  codes: list of codes eg: ch1+:ch2+ (+ for positive, - for negative)
+	 *  
+	 * Returns the id of the image with the codes
+	 *  
+	 */
+	 
+	selectImage(src);
+	
+	getDimensions(width, height, channels, slices, frames);
+	newImage("Codes", "8-bit grayscale-mode", width, height, codes.length, 1, 1);
+	dst = getImageID();
+	
+	for (k = 0; k < codes.length; k++) {		
+		segment = split(codes[k],":");
+		for (ii = 0 ; ii < segment.length; ii++) { segment[ii] = String.trim(segment[ii]); }
+		// analyze the code
+		subset = newArray(segment.length);
+		signs = newArray(segment.length);		
+		for (i = 0; i < segment.length; i++) {
+			channel = substring(segment[i], 0, segment[i].length-1);
+			channel_idx = getChannelIdx(channel_names, channel);
+			sign = substring(segment[i], segment[i].length-1, segment[i].length);
+			subset[i] = channel_idx;
+			if (matches(sign,"\\+")) {				
+				signs[i] = 1;
+			} else {				
+				signs[i] = 0;
+			}		
+		}
+		
+		// apply the code to the ROIs
+		selectImage(dst);
+		for (i = 0; i < rois.length; i++) {			
+			test = true;
+			for (i = 0; i < segment.length; i++) {
+				c = subset[i];
+				test = test && (values[i+c*rois.length]==signs[i]);
+			}
+			if (test) {
+				setColor(255);				
+				roiManager("select", i);
+				setSlice(k+1);
+				fill();
+			}
+		}
+	}	
+	return dst;
+}
+
+function parseCode(src) {
+	/*
+	 * Parse c+:d- channel codes and return an array with channel and sign
+	 */
+	segment = split(src,":");
+	dst = newArray(2*segment.length);
+	for (i = 0; i < segment.length; i++) {
+		channel = substring(segment[i], 0, segment[i].length-1);
+		sign = substring(segment[i], segment[i].length-1, segment[i].length);
+		if (matches(sign,"\\+")) {
+			dst[2*i] = channel;
+			dst[2*i+1] = 1;
+		} else {
+			dst[2*i] = channel;
+			dst[2*i+1] = 0;
+		}
+	}
+	return dst;
+}
+
+function decodeChannelsOld(src, channel_names, codes) {
+	/*
+	 * Decode channels based on a list of code
+	 * 
+	 * Parameters
+	 *  src: id of the input image
+	 *  channel_names : list of channel names in the order 
+	 *  codes: list of codes eg: ch1+:ch2+ (+ for positive, - for negative)
+	 *  
+	 * Returns the id of the image with the codes
+	 *  
+	 */
+	 
+	selectImage(src);
+	run("Select None");
+	getDimensions(width, height, channels, slices, frames);
+	newImage("Codes", "8-bit grayscale-mode", width, height, codes.length, 1, 1);
+	dst = getImageID();
+	
+	for (k = 0; k < codes.length; k++) {
+		print("\nCreating " + codes[k]);
+		segment = split(codes[k],":");
+		for (ii = 0 ; ii < segment.length; ii++) { segment[ii] = String.trim(segment[ii]); }
+		subset = "";
+		signs = newArray(segment.length);
+		for (i = 0; i < segment.length; i++) {
+			channel = substring(segment[i], 0, segment[i].length-1);
+			channel_idx = getChannelIdx(channel_names, channel);
+			sign = substring(segment[i], segment[i].length-1, segment[i].length);
+			subset += "" + channel_idx + ",";
+			if (matches(sign,"\\+")) {				
+				signs[i] = 1;
+			} else {				
+				signs[i] = 0;
+			}		
+		}
+		subset = substring(subset, 0, subset.length-1);		
+		
+		selectImage(src);		
+		run("Make Subset...", "channels="+subset);
+		sid0 = getImageID();
+		run("Duplicate...", "duplicate");
+		sid = getImageID();
+		for ( i = 0; i < signs.length; i++) {
+			if (signs[i] == 0) {
+				Stack.setChannel(i+1);				
+				run("Invert", "slice");			
+			}
+		}
+		if (nSlices > 1) {
+			run("Z Project...", "projection=[Min Intensity]");			
+		} else {
+			run("Duplicate...", "duplicate");
+		}
+		rename("MIP");
+		mip = getImageID();
+		run("Select None");
+		run("Copy");
+		
+		selectImage(dst);	
+		setSlice(k+1);	
+		Overlay.drawString(""+(k+1)+" ~ "+codes[k], 10, 10);
+		Overlay.setPosition(k+1);
+		Overlay.add;
+		Overlay.show();
+		run("Select None");
+		run("Paste");
+		run("Select None");
+		closeImageList(newArray(mip,sid0,sid));
+	}	
+	return dst;
+}
+
+function getChannelIdx(list, name) {
+	/*
+	 * Return the index of the str in the list
+	 * Parameters
+	 *  list : list of string
+	 *  name : 
+	 */
+	for (i = 0; i < list.length; i++) {		
+		if (matches(list[i], name)) {
+			return i+1;
+		}
+	}
+	return 0;
+}
+
+function summarizeTable(src, dst, filename, references, channel_names, codes) {
 	/*
 	 * Summarize the result in a table with a line per image
 	 */
+	print("Preparing summary...");
 	if (!isOpen(dst)) {Table.create(dst);}
 	selectWindow(dst);
 	row = Table.size;
@@ -379,29 +686,51 @@ function summarizeTable(src, dst, filename, channel_names) {
 		Table.set("Positive [" + channel_names[c]  + "]", row, n);
 	}
 	
-	// count double positive
-	for (c1 = 0; c1 < channel_names.length; c1++) {
-		for (c2 = 0; c2 < channel_names.length; c2++) if (c1 != c2) {
-			selectWindow(src);					
-			x = Table.getColumn("Positive [" + channel_names[c1]  + "]");
-			y = Table.getColumn("Positive [" + channel_names[c2]  + "]");
-			n = 0;
-			for (i = 0; i < x.length; i++) {
-				if (x[i]==1 && y[i]==1) {
-					n++;
-				}
+	// references counts
+	for (c = 0; c < references.length; c++) {		
+		selectWindow(src);		
+		x = Table.getColumn("Positive [" + references[c]  + "]");
+		n = 0;
+		for (i = 0; i < x.length; i++) {
+			if (x[i]==1) {
+				n++;
 			}
-			selectWindow(dst);		
-			Table.set("Double Positive [" + channel_names[c1]  + ":" + channel_names[c2] + "]", row, n);
 		}
+		selectWindow(dst);	
+		Table.set("Positive [" + references[c]  + "]", row, n);
 	}
 	
+	// count codes counts
+	for (c = 0; c < codes.length; c++) {
+		s = parseCode(codes[c]);		
+		selectWindow(src);
+		x = newArray(Table.size);		
+		Array.fill(x, 1);
+		
+		for (k = 0; k < codes.length; k++) {
+			y = Table.getColumn("Positive [" + s[2*k]  + "]");
+			for (i = 0; i < x.length; i++) {
+				if (y[i] != s[2*k+1]) {
+					x[i] = 0;
+				}
+			}
+		}
+		n = 0;
+		for (i = 0; i < x.length; i++) {
+			if (x[i] > 0) {
+				n++;
+			}
+		}
+		selectWindow(dst);	
+		Table.set("Positive [" + codes[c] + "]", row, n);
+	}
+		
 	// average distance to other labels if positive
-	for (c1 = 0; c1 < channel_names.length; c1++) {
-		for (c2 = 0; c2 < channel_names.length; c2++) if (c1 != c2) {
+	for (c1 = 0; c1 < references.length; c1++) {
+		for (c2 = 0; c2 < codes.length; c2++) {
 			selectWindow(src);					
-			x = Table.getColumn("Positive [" + channel_names[c1]  + "]");
-			y = Table.getColumn("Distance to [" + channel_names[c2]  + "]");
+			x = Table.getColumn("Positive [" + references[c1]  + "]");
+			y = Table.getColumn("Distance to [" + codes[c2]  + "]");
 			n = 0;
 			d = 0;
 			for (i = 0; i < x.length; i++) {
@@ -411,14 +740,13 @@ function summarizeTable(src, dst, filename, channel_names) {
 				}
 			}
 			selectWindow(dst);					
-			Table.set("Average distance [" + channel_names[c1]  + ":" + channel_names[c2] + "]", row, d/n);
+			Table.set("Average distance [" + references[c1]  + "|" + codes[c2] + "]", row, d/n);
 		}
 	}
 	Table.update;
 }
 
 function cropActiveSelection() {	
-	print("ROI size " + Roi.size);
 	if (Roi.size == 0) {
 		run("Select All");
 		roiManager("add");
@@ -435,11 +763,7 @@ function parseCSVString(csv) {
 	values = newArray(str.length);
 	for (i = 0 ; i < str.length; i++) {
 		values[i] = String.trim(str[i]);
-	}
-	Stack.getDimensions(width, height, channels, slices, frames);
-	for (i = str.length; i < channels; i++) {
-		values[i] = "ch" + i;
-	}
+	}	
 	return values;
 }
 
@@ -458,6 +782,7 @@ function closeWindow(name) {
  		selectWindow(name); 
  		run("Close");
  	}
+ 	run("Collect Garbage");
 }
 
 function closeImageList(list) {
@@ -465,6 +790,7 @@ function closeImageList(list) {
 		selectImage(list[i]);
 		close();
 	}
+	run("Collect Garbage");
 }
 
 function addROIsToOverlay(id, rois) {
@@ -475,4 +801,47 @@ function addROIsToOverlay(id, rois) {
 		run("Add Selection...");	
 		Overlay.setStrokeColor("white");
 	}		
+}
+
+function createTestImage() {
+	run("Close All");
+	n = 512;
+	nb = 7;
+	d = 40;
+	newImage("HyperStack", "32-bit color-mode", n, n, 3, 1, 1);
+	for (i = 0; i < nb; i++) {
+		for (j = 0; j < nb; j++) {
+			Stack.setChannel(1);		
+			setColor(255);
+			makeOval((i+0.15+0.3*random)*n/nb, (j+0.15+0.3*random)*n/nb, d, d);
+			fill();
+			if (random > 0.1) {
+				Stack.setChannel(2);		
+				setColor(255);
+				makeRectangle(i*n/nb+1, j*n/nb+1, n/nb-2, n/nb-2);
+				fill();
+			} else {			
+				if (random > 0.5) {
+					Stack.setChannel(3);		
+					setColor(255);
+					makeRectangle(i*n/nb+3, j*n/nb+3, n/nb-6, n/nb-6);
+					fill();
+				}
+			}
+		}
+	}
+	run("Select None");
+	run("Gaussian Blur...", "sigma=5 stack");
+	luts = newArray("Blue","Green","Red");
+	for (c = 1; c <= 3; c++) {
+		Stack.setChannel(c);
+		resetMinAndMax();		
+	}
+	run("8-bit");
+	
+	Stack.setDisplayMode("composite");
+	for (c = 1; c <= 3; c++) {
+		Stack.setChannel(c);
+		run(luts[c-1]);
+	}
 }
