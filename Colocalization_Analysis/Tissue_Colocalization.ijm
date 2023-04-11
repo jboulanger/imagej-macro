@@ -18,7 +18,8 @@
  * Jerome for Leonor 2023
  */
  
-do_pcc=false;
+do_pcc=false; // do pearson correlation coefficient?
+
 start_time = getTime();
 print("\\Clear");
 run("Close All");
@@ -57,7 +58,7 @@ rois = createROIfromLabels(labels);
 masks =  mapPositiveLabels(id, labels);
 
 // basic measurement for each segmented ROI
-measureInROI(tbl1, id, rois, channel_names, do_pcc);
+measureInROI(tbl1, id, rois, channel_names, do_pcc, pixel_unit);
 
 // record positive channels
 positive = recordPositiveROIs(tbl1, masks, rois, channel_names);
@@ -68,13 +69,18 @@ decoded = decodeChannelsOld(masks, channel_names, codes);
 
 measureROIdistanceToLabels(tbl1, decoded, rois, codes, references, pixel_size, pixel_unit);
 
-summarizeTable(tbl1, tbl2, File.getNameWithoutExtension(filename), references, channel_names, codes);
+summarizeTable(tbl1, tbl2, File.getNameWithoutExtension(filename), references, channel_names, codes, pixel_unit);
 
 if (do_save) {
 	
 	selectWindow(tbl1);
 	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-results-table.csv";
-	print("Saving table in " + ofile);		
+	print("Saving result table in " + ofile);		
+	Table.save(ofile);
+	
+	selectWindow(tbl2);
+	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-summary-table.csv";
+	print("Saving summary table in " + ofile);		
 	Table.save(ofile);
 	
 	selectWindow("median");
@@ -83,7 +89,8 @@ if (do_save) {
 	saveAs("tiff", ofile);	
 	
 	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-rois.zip";
-	roiManager("save", ofile);	
+	roiManager("save", ofile);
+	
 }
 
 //selectImage(masks); close();
@@ -263,7 +270,7 @@ function createROIfromLabels(id) {
  	return rois;
 }
 
-function measureInROI(tbl, id, rois, channel_names, do_pcc) {
+function measureInROI(tbl, id, rois, channel_names, do_pcc, pixel_unit) {
 	/*
 	 * Measurement for each ROI over all chanels.
 	 * - Mean
@@ -293,7 +300,7 @@ function measureInROI(tbl, id, rois, channel_names, do_pcc) {
 	 	Table.set("Name", i, Roi.getName);
 	 	
 	 	// Area
-	 	Table.set("Area", i, getValue("Area"));
+	 	Table.set("Area in "+pixel_unit+"^2", i, getValue("Area"));
 	 	
 	 	// location		 	
 	 	Table.set("X", i, getValue("X"));
@@ -394,7 +401,7 @@ function measureROIdistanceToLabels(tbl, id, rois, channel_names, references, pi
 		for (i = 0; i < rois.length; i++) {
 			roiManager("select", i);
 			Stack.setChannel(c);
-			Table.set("Distance to [" + channel_names[c-1]+"]", i, getValue("Min") * pixel_size);
+			Table.set("Distance to [" + channel_names[c-1]+"] in " + pixel_unit, i, getValue("Min") * pixel_size);
 		}
 	}
 	Table.update;
@@ -673,7 +680,7 @@ function getChannelIdx(list, name) {
 	return 0;
 }
 
-function summarizeTable(src, dst, filename, references, channel_names, codes) {
+function summarizeTable(src, dst, filename, references, channel_names, codes, pixel_unit) {
 	/*
 	 * Summarize the result in a table with a line per image
 	 */
@@ -682,11 +689,21 @@ function summarizeTable(src, dst, filename, references, channel_names, codes) {
 	selectWindow(dst);
 	row = Table.size;
 	Table.set("File", row, filename);
+	
 	// total number of ROI
 	selectWindow(src);		
 	n = Table.size;
 	selectWindow(dst);
 	Table.set("Number of ROIs", row, n);
+	
+	selectWindow(src);			
+	x = Table.getColumn("Area in " + pixel_unit + "^2");
+	area = 0;
+	for (i = 0; i < x.length; i++) {		
+		area += x[i];		
+	}
+	selectWindow(dst);
+	Table.set("Total area in " + pixel_unit + "^2", row, area);
 	
 	// count positive
 	for (c = 0; c < channel_names.length; c++) {
@@ -745,7 +762,7 @@ function summarizeTable(src, dst, filename, references, channel_names, codes) {
 		for (c2 = 0; c2 < codes.length; c2++) {
 			selectWindow(src);					
 			x = Table.getColumn("Positive [" + references[c1]  + "]");
-			y = Table.getColumn("Distance to [" + codes[c2]  + "]");
+			y = Table.getColumn("Distance to [" + codes[c2]  + "] in " + pixel_unit);
 			n = 0;
 			d = 0;
 			for (i = 0; i < x.length; i++) {
@@ -755,7 +772,7 @@ function summarizeTable(src, dst, filename, references, channel_names, codes) {
 				}
 			}
 			selectWindow(dst);					
-			Table.set("Average distance [" + references[c1]  + "|" + codes[c2] + "]", row, d/n);
+			Table.set("Average distance [" + references[c1]  + "|" + codes[c2] + "] in " + pixel_unit, row, d/n);
 		}
 	}
 	Table.update;
