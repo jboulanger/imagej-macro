@@ -3,7 +3,7 @@
 //@Integer(label="Channel with nuclei labeling for segmentation", value=1) channel_nuclei
 //@String(label="Reference channel",value="B", description="name of the reference channel (comma separated)") references_str
 //@String(label="Combined channels code",value="A+:B+,C+:D+", description="comma separated list of codes eg A+:B+,A+:B-") codes_str
-
+//@Boolean(label="Save",value=true) do_save
 /* 
  * Tissue colocalization
  * 
@@ -24,7 +24,7 @@ print("\\Clear");
 run("Close All");
 open(filename);
 Overlay.remove();
-filename = getTitle();
+getPixelSize(pixel_unit, pixel_size, pixel_size);
 tbl1 = "Measure per ROI.csv";
 tbl2 = "Summary.csv";
 closeWindow(tbl1);
@@ -37,7 +37,7 @@ channel_names = parseCSVString(channel_names_str);
 references =  parseCSVString(references_str);
 codes =  parseCSVString(codes_str);
 
-print("Input image: " + filename);
+print("Input image: " + File.getNameWithoutExtension(filename));
 print("Channel names: " + array2csv(channel_names));
 print("Reference channels: " + array2csv(references));
 print("Combined channels: " + array2csv(codes));
@@ -66,13 +66,29 @@ positive = recordPositiveROIs(tbl1, masks, rois, channel_names);
 //decoded = decodeROIChannels(masks, rois, positive, channel_names, codes);
 decoded = decodeChannelsOld(masks, channel_names, codes);
 
-measureROIdistanceToLabels(tbl1, decoded, rois, codes);
+measureROIdistanceToLabels(tbl1, decoded, rois, codes, references, pixel_size, pixel_unit);
 
-summarizeTable(tbl1, tbl2, filename, references, channel_names, codes);
+summarizeTable(tbl1, tbl2, File.getNameWithoutExtension(filename), references, channel_names, codes);
 
-selectImage(masks); close();
+if (do_save) {
+	
+	selectWindow(tbl1);
+	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-results-table.csv";
+	print("Saving table in " + ofile);		
+	Table.save(ofile);
+	
+	selectWindow("median");
+	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-cell-mean-intensity.tif";
+	print("Saving intensities in " + ofile);		
+	saveAs("tiff", ofile);	
+	
+	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-rois.zip";
+	roiManager("save", ofile);	
+}
+
+//selectImage(masks); close();
 selectImage(labels); close();
-selectWindow("Codes");close();
+//selectWindow("Codes");close();
 //selectWindow("median");close();
 
 selectImage(id);
@@ -364,7 +380,7 @@ function filterOutRois(rois,keep) {
 	 return Array.trim(dst,k);	 
 }
 
-function measureROIdistanceToLabels(tbl, id, rois, channel_names) {
+function measureROIdistanceToLabels(tbl, id, rois, channel_names, references, pixel_size, pixel_unit) {
 	/*
 	 * Record distance of each ROIs to the labels in id
 	 */
@@ -378,7 +394,7 @@ function measureROIdistanceToLabels(tbl, id, rois, channel_names) {
 		for (i = 0; i < rois.length; i++) {
 			roiManager("select", i);
 			Stack.setChannel(c);
-			Table.set("Distance to [" + channel_names[c-1]+"]", i, getValue("Min"));
+			Table.set("Distance to [" + channel_names[c-1]+"]", i, getValue("Min") * pixel_size);
 		}
 	}
 	Table.update;
@@ -704,10 +720,9 @@ function summarizeTable(src, dst, filename, references, channel_names, codes) {
 	for (c = 0; c < codes.length; c++) {
 		s = parseCode(codes[c]);		
 		selectWindow(src);
-		x = newArray(Table.size);		
-		Array.fill(x, 1);
-		
-		for (k = 0; k < codes.length; k++) {
+		x = newArray(Table.size);
+		Array.fill(x, 1);		
+		for (k = 0; k < s.length / 2; k++) {
 			y = Table.getColumn("Positive [" + s[2*k]  + "]");
 			for (i = 0; i < x.length; i++) {
 				if (y[i] != s[2*k+1]) {
