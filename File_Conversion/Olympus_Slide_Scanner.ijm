@@ -1,5 +1,5 @@
 #@File    (label="Input file", description="Select a .vsi file", style="open") ipath
-#@Integer (label="Resolution level", description="Select a resolution level to export the data (1-6)", value=6) resolution_level
+#@Integer (label="Resolution level", description="Select a resolution level to export the data (1-6) 1 is the biggest resolution", value=6) resolution_level
 #@String  (label="Format", choices={"TIFF","PNG"}) format
 #@String  (label="Channels",  description="List channels to export separated by a comma.Type 'all' for including all channels", value="all") channel_csv
 #@String  (label="LUTs", description="List channels to export separated by a comma. Type 'Grays' for all channel in grayscale, look at the Image>Lookup Tables for other options.", values="auto") lut_csv
@@ -35,6 +35,8 @@ if (matches(summary,"Detailed")) {
 if (!dummy) {
 	exportResolutionLevel(ipath, info, opath, resolution_level, skip_overview_label, format, channel_list, lut_list, tag);
 }
+
+run("Collect Garbage");
 
 
 function exportResolutionLevel(ipath, info, opath, level, skip_overview_label, format, channel_list, lut_list, tag) {

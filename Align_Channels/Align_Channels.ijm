@@ -4,44 +4,54 @@
 
 /*
  * Estimate and apply channel alignement from a bead calibration image
- * 
+ *
  * Channels are aligned to the 1st channel
- * 
+ *
  * Estimate transform:
- *  open an image with beads and save the Models.csv file
- *  
+ *  - Open an image with beads and save the model as a csv file
+ *  - If the image is a 3d stack a mip will be performed first
+ *
  * Apply transform:
- *   parameters are loaded from a Models.csv table
- *   
- *   
+ *   - Parameters are loaded from a csv table
+ *   - All planes of the hyperstacks are aligned
+ *
+ * If there is no opened image a test image is generated.
+ *
  *  Toubleshouting
- *  
- *  	1. The name of the model table has to be 'Models.csv'. Rename if needed
- *  	2. The macro will work on small images (tested on 1024x1024) and is relatively slow.
- *  	3. Some error may occur, try closing the results and models.csv tables.
- *  	
- *  	
- *  TODO: improve robustness to outliers
- *   
+ *
+ *  	1. The macro will work on small images (tested on 1024x1024) and is relatively slow.
+ *  	2. Some error may occur, try closing the results and models.csv tables.
+ *
+ *
+ *  TODO: improve robustness to outliers, use multi-frame data
+ *
  * Jerome Boulanger 2021-2022 for Sina, Anna & Ross
  */
- 
-run("Set Measurements...", "  redirect=None decimal=9");
 
-if (nImages==0) {	
+run("Set Measurements...", "  redirect=None decimal=12");
+
+if (nImages==0) {
+	print("No image opened, generating a test image with a quadratic model.");
 	generateTestImage();
+	model="Quadratic";
+	estimateTransform(model,tblname);
+	run("Select None");
+	run("Duplicate...","title=[test aligned] duplicate");
+	Overlay.remove();
+	applyTransform(tblname);
+	measureTestError(getImageID());
 	exit();
 }
 
-if (matches(mode, "Estimate Beads")) {	
-	print("Estimate transfrom from beads");	
+if (matches(mode, "Estimate Beads")) {
+	print("Estimate transfrom from beads");
 	estimateTransform(model,tblname);
 } else if (matches(mode, "Estimate ROI")) {
 	print("Estimate transfrom from ROIs");
 	estimateTransformROI(model,tblname);
 } else if (matches(mode,"Show beads")) {
 	showBeads();
-} else {	
+} else {
 	print("Apply transform");
 	applyTransform(tblname);
 }
@@ -49,45 +59,70 @@ print("Done");
 
 function generateTestImage() {
 	w = 500;
-	h = 500;	
-	newImage("test", "8-bit composite-mode", w, h, 2, 1, 1);	
-	N = 30;	
+	h = 500;
+	newImage("test", "8-bit composite-mode", w, h, 2, 1, 1);
+	N = 30;
 	a = 1e-1;
 	b = 1e-2;
-	c = 1e-1;	
+	c = 1e-1;
 	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
-	Array.print(M);	
+	//Array.print(M);
 	rho = 1;
 	for (k = 0; k < N; k++) {
 		x = w/8 + 3/4*w * random;
 		y = h/8 + 3/4*h * random;
-		Stack.setChannel(1);		
-		if (random<rho) {
+		Stack.setChannel(1);
+		if (random < rho) {
 			drawGaussian(x,y);
 		}
 		xi = 2 * x / w - 1;
-		yi = 2 * y / h - 1;		
+		yi = 2 * y / h - 1;
 		xt = M[0] + M[1] * xi + M[2] * yi +  M[3] * xi*xi + M[4] * xi*yi + M[5]*yi*yi;
 		yt = M[6] + M[7] * xi + M[8] * yi + M[9] * xi*xi + M[10] * xi*yi + M[11]*yi*yi;
 		xt = w * (xt + 1) / 2;
 		yt = h * (yt + 1) / 2;
-		Stack.setChannel(2);	
+		Stack.setChannel(2);
 		if (random<rho) {
-			drawGaussian(xt,yt);		
+			drawGaussian(xt,yt);
 		}
 	}
 }
 
-function drawGaussian(xc,yc) {	
+function drawGaussian(xc,yc) {
 	x0 = round(xc);
 	y0 = round(yc);
 	for (y = y0-3; y <= y0+3; y++) {
 		for (x = x0-3; x <= x0+3; x++) {
 			dx = x - xc;
 			dy = y - yc;
-			setPixel(x, y, 255 * exp(-0.25*(dx*dx+dy*dy)));			
+			I = getPixel(x, y);
+			setPixel(x, y, I + 128 * exp(-0.25*(dx*dx+dy*dy)));
 		}
 	}
+}
+
+function measureTestError(id0) {
+	selectImage(id0);
+	run("Select None");
+	Stack.setChannel(1);
+	run("Duplicate...", "title=c1 channels=1");
+	run("32-bit");
+	maxi = getValue("Max");
+	id1 = getImageID();
+	selectImage(id0);
+	Stack.setChannel(2);
+	run("Duplicate...", "title=c2 channels=2");
+	run("32-bit");
+	id2 = getImageID();
+	imageCalculator("Subtract", id1, id2);
+	run("Square");
+	run("Select None");
+	rmse = sqrt(getValue("Mean"));
+	print("RMSE : " + rmse);
+	print("PSNR  : " + 20 * log(maxi / rmse) +"dB");
+	selectImage(id1); close();
+	selectImage(id2); close();
+	return rmse;
 }
 
 function showBeads(){
@@ -96,7 +131,7 @@ function showBeads(){
 	for (i = 0; i < n; i++) {
 		x = getResult("X", i);
 		y = getResult("Y", i);
-		c = getResult("Channel", i);		
+		c = getResult("Channel", i);
 		makePoint(x, y);
 		Roi.setPosition(c, 1, 1);
 		roiManager("add");
@@ -104,7 +139,7 @@ function showBeads(){
 	roiManager("show all without labels");
 }
 
-function applyTransform(tblname) {	
+function applyTransform(tblname) {
 	Stack.getDimensions(width, height, channels, slices, frames);
 	for (channel = 2; channel <= channels; channel++) {
 		cname = "M1"+channel;
@@ -112,7 +147,7 @@ function applyTransform(tblname) {
 		if (isOpen(tblname)) {
 			selectWindow(tblname);
 		} else {
-			exit("Could not find table " + tblname);			
+			exit("Could not find table " + tblname);
 		}
 		M = Table.getColumn(cname);
 		for (frame = 1; frame <= frames; frame++) {
@@ -125,7 +160,7 @@ function applyTransform(tblname) {
 }
 
 function estimateTransform(degree,tblname) {
-	// Estimate the alignement for each channel in the image stack	
+	// Estimate the alignement for each channel in the image stack
 	Overlay.remove;
 	setBatchMode(true);
 	if (isOpen("Results")) {selectWindow("Results");run("Close");}
@@ -135,11 +170,15 @@ function estimateTransform(degree,tblname) {
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
 	}
+	
 	run("Set Measurements...", "  redirect=None decimal=3");
-	for (channel = 1; channel <= channels; channel++) {
-		selectImage(id0);
-		getBeadsLocation(channel);
+	for (frame = 1; frame <= frames; frame++) {
+		for (channel = 1; channel <= channels; channel++) {
+			selectImage(id0);
+			getBeadsLocation(channel, frame);
+		}
 	}
+	
 	setBatchMode(false);
 	for (channel = 2; channel <= channels; channel++) {
 		Stack.setChannel(channel);
@@ -179,10 +218,10 @@ function estimateTransformROI(degree,tblname) {
 }
 
 function estimateTfm(c1,c2,degree) {
-	// Estimate the transformation model by loading coordinate from 
+	// Estimate the transformation model by loading coordinate from
 	// the result table.
 	w = getWidth();
-	h = getHeight();	
+	h = getHeight();
 	if (matches(degree,"Affine")) {
 		X = loadCoords(c1,3);
 	} else {
@@ -191,12 +230,12 @@ function estimateTfm(c1,c2,degree) {
 	//print(mat2str(X, "channel 1: X"));
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c1); exit();
-	}	
+	}
 	Y = loadCoords(c2,2);
 	if (matcol(X)==0) {
 		print("No control points found in channel "+c2); exit();
 	}
-	
+
 	//print(mat2str(Y, "channel 2: Y"));
 	M = icp(X,Y);
 	//print(mat2str(M, "transform"));
@@ -207,44 +246,44 @@ function icp(X,Y) {
 	// iterative closest point
 	// X : coordinate matrix
 	// Y : coordinate matrix
-	// return the transformation matrix		
+	// return the transformation matrix
 	n = X[0];
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
 	e0 = 0;
-	
-	for (iter = 0; iter < 30; iter++) {		
-		
-		MX = matmul(X,M);		
-		Yi = smatch(MX,Y);		
-		E = errorDistance(MX,Yi);						
-		e0 = matmean(E,-1);	
-		
-		E = matbelowthreshold(E,4*e0);		
+
+	for (iter = 0; iter < 100; iter++) {
+
+		MX = matmul(X,M);
+		Yi = smatch(MX,Y);
+		E = errorDistance(MX,Yi);
+		e0 = matmean(E,-1);
+
+		E = matbelowthreshold(E,4*e0);
 		Xs = matsubsetrow(X,E);
-		Yis = matsubsetrow(Yi,E);		
+		Yis = matsubsetrow(Yi,E);
 		M = solve(Xs,Yis);
-				
-		MX = matmul(X,M);		
-		e1 = meanErrorDistance(MX,Yi);		
-		
-		print("rel error :" + d2s((e1-e0)/(e1+e0),8)+", error:"+d2s(e1,8));
-		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-9) {break++;}				
+
+		MX = matmul(X,M);
+		e1 = meanErrorDistance(MX,Yi);
+
+		print("error : " + e1 + ", relative variation: "+ (e1-e0) / (e1+e0));
+		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-12) { break++; }
 	}
 	//MXs = matmul(Xs,M);
-	M = mattranspose(M);	
+	M = mattranspose(M);
 	drawMatch(Xs,Yis);
 	return M;
 }
 
 function drawMatch(X,Y) {
-	// draw a line between each rows of X and Y	
-	getDimensions(w, h, channels, slices, frames);	
-	for (i = 0; i < matrow(X); i++) {			
+	// draw a line between each rows of X and Y
+	getDimensions(w, h, channels, slices, frames);
+	for (i = 0; i < matrow(X); i++) {
 		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
 		Overlay.show();
-	}	
+	}
 }
 
 function nnmatch(X,Y) {
@@ -262,7 +301,7 @@ function nnmatch(X,Y) {
 				jstar = j;
 			}
 		}
-		// copy x and y values in Yi corresponing to the 
+		// copy x and y values in Yi corresponing to the
 		// closest match to Xi
 		Yi[2+0+i*2] = Y[2+0+jstar*2];
 		Yi[2+1+i*2] = Y[2+1+jstar*2];
@@ -272,10 +311,10 @@ function nnmatch(X,Y) {
 
 function smatch(X,Y) {
 	// for each row of Y[Nx2] find the closest row in X[Nx2]
-	// use the sinkhorn algorithm to find the best match	
+	// use the sinkhorn algorithm to find the best match
 	//print(matshape2str(X,"X"));
 	//print(matshape2str(Y,"Y"));
-	C = pairwiseDistance(X,Y);	
+	C = pairwiseDistance(X,Y);
 	P = sinkhorn_uniform(C,-1);
 	//mat2img(P,"P");
 	Yi = matzeros(X[0],Y[1]);
@@ -289,7 +328,7 @@ function smatch(X,Y) {
 				jstar = j;
 			}
 		}
-		// copy x and y values in Yi corresponing to the 
+		// copy x and y values in Yi corresponing to the
 		// closest match to Xi
 		Yi[2+0+i*2] = Y[2+0+jstar*2];
 		Yi[2+1+i*2] = Y[2+1+jstar*2];
@@ -308,7 +347,7 @@ function sinkhorn_uniform(C,gamma) {
 }
 
 function sinkhorn(C,p,q,gamma) {
-	/* Optimal transport 
+	/* Optimal transport
 	 *  Parameters
 	 * X: cost [n,m] matrix (distance)
 	 * p : mass [m,1] vector (probability)
@@ -316,8 +355,8 @@ function sinkhorn(C,p,q,gamma) {
 	 * gamma : entropic regularization parameter
 	 * Note
 	 * - p and q will be normalized by their sum and reshaped as column vector
-	 * - if gamma < 0, gamma is set to 10/min(C) 
-	 * 
+	 * - if gamma < 0, gamma is set to 10/min(C)
+	 *
 	 */
 	n = matrow(C);
 	m = matcol(C);
@@ -328,16 +367,16 @@ function sinkhorn(C,p,q,gamma) {
 	// normalize p and q
 	p = mat_normalize_sum(p);
 	q = mat_normalize_sum(q);
-	
+
 	// compute a default gamma value from C
 	if (gamma < 0) {
 		minc = C[2];
-		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
-		gamma = maxOf(0.001,200*minc);
-		print("min c: "+minc+" gamma = "+gamma);
+		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}
+		gamma = maxOf(0.00001,200*minc);
+		print(" min c: " + minc + " gamma = " + gamma);
 	}
 	// compute xi = exp(-C/gamma)
-	xi = matzeros(n,m);	
+	xi = matzeros(n,m);
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {
 			cij = matget(C,i,j);
@@ -359,7 +398,7 @@ function sinkhorn(C,p,q,gamma) {
 	// P = diag(a)*xi*diag(b)
 	P = matzeros(n,m);
 	for (i = 0; i < n; i++) {
-		for (j = 0; j < m; j++) {			
+		for (j = 0; j < m; j++) {
 			P[2+j+m*i] = xi[2+j+m*i] * a[2+i] * b[2+j];
 		}
 	}
@@ -367,7 +406,7 @@ function sinkhorn(C,p,q,gamma) {
 	a = matdiag(a);
 	b = matdiag(b);
 	P = matmul(xi, b);
-	P = matmul(a, P);	
+	P = matmul(a, P);
 	*/
 	return P;
 }
@@ -376,19 +415,19 @@ function meanErrorDistance(X,Y) {
 	// Compute the error distance between matching X and Y
 	// X : [n,2] coordinate matrix
 	// Y : [m,2] coordinate matrix
-	// return the average distance	
+	// return the average distance
 	//print("X ["+X[0]+","+X[1]+"]");
 	//print("Y ["+Y[0]+","+Y[1]+"]");
 	n = matrow(X);
 	D = 2;
 	e = 0;
-	for (i = 0; i < n; i++) {		
+	for (i = 0; i < n; i++) {
 		s = 0;
 		for (k = 0; k < D; k++) {
 			d = matget(X,i,k) - matget(Y,i,k);
 			s += d*d;
 		}
-		e += sqrt(s);		
+		e += sqrt(s);
 	}
 	e = e/n;
 	return e;
@@ -402,21 +441,21 @@ function errorDistance(X,Y) {
 	//print("X ["+X[0]+","+X[1]+"]");
 	//print("Y ["+Y[0]+","+Y[1]+"]");
 	n = matrow(X);
-	D = 2;	
+	D = 2;
 	E = matzeros(n,1);
-	for (i = 0; i < n; i++) {		
+	for (i = 0; i < n; i++) {
 		s = 0;
 		for (k = 0; k < D; k++) {
 			d = matget(X,i,k) - matget(Y,i,k);
 			s += d*d;
 		}
-		matset(E,i,0,sqrt(s));		
-	}	
+		matset(E,i,0,sqrt(s));
+	}
 	return E;
 }
 
 function pairwiseDistance(p,q) {
-	// Compute the pairwise distance between p and q 
+	// Compute the pairwise distance between p and q
 	// P : coordinate matrix [n,2]
 	// Q : coordinate matrix [m,2]
 	// return distance [n x m] matrix
@@ -479,7 +518,7 @@ function loadCoords(channel, M) {
 				a[2+M*k] = x;
 				a[2+M*k+1] = y;
 			}
-			k = k + 1; 
+			k = k + 1;
 		}
 	}
 	a[0] = k;
@@ -488,12 +527,12 @@ function loadCoords(channel, M) {
 	return a;
 }
 
-function getBeadsLocation(channel) {
+function getBeadsLocation(channel, frame) {
 	// Get location of beads in all channels and save the results in a result table
-	colors=newArray("red","green","blue","white");
+	colors = newArray("red","green","blue","white");
 	id = getImageID();
 	run("Select None");
-	run("Duplicate...", "duplicate channels="+channel);
+	run("Duplicate...", "duplicate channels="+channel+" frames="+frame);
 	run("32-bit");
 	run("Gaussian Blur...", "sigma=1");
 	id1 = getImageID();
@@ -505,22 +544,23 @@ function getBeadsLocation(channel) {
 	setThreshold(mean+2*std, max);
 	n0 = roiManager("count");
 	run("Analyze Particles...", "size=5-Infinity pixel circularity=0.1-1.00 add");
-	n1 = roiManager("count");	
+	n1 = roiManager("count");
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	selectImage(id);
-	for (i = n0; i < n1; i++){		
-		roiManager("select",i);
-		setResult("Channel",i, channel);
+	for (i = n0; i < n1; i++){
+		roiManager("select",i);		
 		xm = getValue("XM")/pixelWidth;
 		ym = getValue("YM")/pixelWidth;
 		Stack.setChannel(channel);
-		pos = fitBeadXY(xm,ym,2);		
+		pos = fitBeadXY(xm,ym,2);
 		if (!(isNaN(pos[0]) || isNaN(pos[0]))) {
 			xm = pos[0];
-			ym = pos[1];			
+			ym = pos[1];
 		}
 		setResult("X",i,xm);
-		setResult("Y",i,ym);		
+		setResult("Y",i,ym);
+		setResult("Channel",i, channel);		
+		setResult("Frame",i, frame);		
 		Overlay.addSelection(colors[(channel-1)%colors.length]);
 		Overlay.show;
 		updateResults();
@@ -537,23 +577,23 @@ function fitBeadXY(x0,y0,s) {
 			bg = minOf(bg, getPixel(x0+dx, y0+dy));
 		}
 	}
-	for (i = 0; i < 20; i++) {			
+	for (i = 0; i < 20; i++) {
 		sv = 0;
 		x1 = 0;
 		y1 = 0;
 		for (dy = -s; dy <= s; dy+=0.5) {
 			for (dx = -s; dx <= s; dx+=0.5) {
-				d = (dx*dx+dy*dy)/(9*s*s);			
-				v = maxOf(0, getPixel(x0+dx, y0+dy)-bg) * exp(-0.5*d);				
+				d = (dx*dx+dy*dy)/(9*s*s);
+				v = maxOf(0, getPixel(x0+dx, y0+dy)-bg) * exp(-0.5*d);
 				x1 += (x0+dx) * v;
 				y1 += (y0+dy) * v;
 				sv += v;
 			}
-		}		
+		}
 		x0 = x1/sv;
 		y0 = y1/sv;
-		wait(1);		
-	}	
+		wait(1);
+	}
 	return newArray(x0,y0);
 }
 
@@ -562,17 +602,18 @@ function getROILocation() {
 	run("Select None");
 	n = roiManager("count");
 	getPixelSize(unit, pixelWidth, pixelHeight);
-	for (i = 0;i < n; i++){		
+	for (i = 0; i < n; i++){
 		roiManager("select",i);
 		Stack.getPosition(channel, slice, frame);
-		setResult("Channel",i, channel);
 		setResult("X",i,getValue("XM")/pixelWidth);
 		setResult("Y",i,getValue("YM")/pixelHeight);
+		setResult("Channel",i, channel);
+		setResult("Frame",i, frame);
 		Overlay.addSelection();
 		Overlay.show;
 		updateResults();
 	}
-	updateResults();	
+	updateResults();
 }
 
 
@@ -586,7 +627,7 @@ function applyTfm(filename) {
 				Stack.setPosition(channel, slice, frame);
 				applyTfmToSlice(tfm);
 			}
-	}	
+	}
 }
 
 function applyTfmToSlice(M) {
@@ -659,7 +700,7 @@ function matcheck(A, name) {
 	// check if the size of the matrix are consistent
 	if (A.length != 2+A[0]*A[1]) {
 		print("Matrix "+name+" is not consistent");
-	}	
+	}
 }
 
 function matnew(n,m,vals) {
@@ -746,11 +787,11 @@ function matget(A,i,j) {
 }
 
 function mattranspose(A) {
-	// transpose matrix A	
+	// transpose matrix A
 	M = matcol(A);
 	N = matrow(A);
 	//assert((A.length == 2+N*M),"mattranspose: size of the array does not match matrix dimensions");
-	
+
 	B = matzeros(M,N);
 	for (n = 0; n < N; n++) {
 		for (m = 0; m < M; m++) {
@@ -818,7 +859,7 @@ function matrep(A,K,L) {
 	M = A[1];
 	B = matzeros(N*K,L*M);
 	for (k = 0; k < K; k++) {
-		for (l = 0; l < L; l++) {	
+		for (l = 0; l < L; l++) {
 			for (n = 0; n < N; n++) {
 				for (m = 0; m < M; m++) {
 					B[2+m+l*M+(M*L)*(n+k*N)] = A[2+m+n*M];
@@ -830,7 +871,7 @@ function matrep(A,K,L) {
 }
 
 function matmul(A,B) {
-	// matrix multiplication C[nxk] = A[nxm] x B[mxk] 
+	// matrix multiplication C[nxk] = A[nxm] x B[mxk]
 	// C[n,k] = sum A[n,m] B[m,k]
 	// (column major matrices)
 	N = A[0];
@@ -839,7 +880,7 @@ function matmul(A,B) {
 	if (B[0] != A[1]) {
 		print("matmul(A,B): incompatible dimensions A ["+ A[0]+"x"+A[1]+"], B ["+B[0]+"x"+B[1]+"].");
 		please_check_the_message_in_the_log();
-		
+
 	}
 	C = matzeros(N,K);
 	for (n = 0; n < N; n++) {
@@ -901,7 +942,7 @@ function matsum(A,dim) {
 		S = 0;
 		for (n = 0; n < N; n++) {
 			for (m = 0; m < M; m++) {
-				S = S + A[2+m+n*M];	
+				S = S + A[2+m+n*M];
 			}
 		}
 	}
@@ -943,7 +984,7 @@ function matmax(A,dim) {
 		S = A[2];
 		for (n = 0; n < N; n++) {
 			for (m = 0; m < M; m++) {
-				S = maxOf(S,A[2+m+n*M]);	
+				S = maxOf(S,A[2+m+n*M]);
 			}
 		}
 	}
@@ -972,7 +1013,7 @@ function matmin(A,dim) {
 		S = A[2];
 		for (n = 0; n < N; n++) {
 			for (m = 0; m < M; m++) {
-				S = minOf(S,A[2+m+n*M]);	
+				S = minOf(S,A[2+m+n*M]);
 			}
 		}
 	}
@@ -1010,23 +1051,23 @@ function matnorm(A) {
 }
 
 function matabovethreshold(A,t) {
-	/* Threshold matrix A 
+	/* Threshold matrix A
 	 *  returns a matrix with 1 if Aij> t
-	 */	
+	 */
 	B = matzeros(matrow(A),matcol(A));
 	for (i=2;i<A.length;i++) {
-		if (A[i] > t) {B[i]=1;} 
+		if (A[i] > t) {B[i]=1;}
 	}
 	return B;
 }
 
 function matbelowthreshold(A,t) {
-	/* Threshold matrix A 
+	/* Threshold matrix A
 	 *  returns a matrix with 1 if Aij> t
-	 */	
+	 */
 	B = matzeros(matrow(A),matcol(A));
 	for (i=2;i<A.length;i++) {
-		if (A[i] < t) {B[i]=1;} 
+		if (A[i] < t) {B[i]=1;}
 	}
 	return B;
 }
@@ -1041,16 +1082,16 @@ function matsubsetrow(A,I) {
 	k = 0;
 	B = Array.copy(A);
 	for (i = 0; i < n; i++) {
-		if (I[i] > 0) {			
+		if (I[i] > 0) {
 			for (j = 0; j < m; j++) {
-				B[2+j+m*k] = A[2+j+m*i];			
-				//matset(B,k,j,matget(A,i,j));				
+				B[2+j+m*k] = A[2+j+m*i];
+				//matset(B,k,j,matget(A,i,j));
 			}
 			k = k+1;
 		}
 	}
-	B = Array.trim(B, 2+m*(k-1));
-	B[0] = k-1;
+	B = Array.trim(B, 2+m*(k));
+	B[0] = k;
 	return B;
 }
 
