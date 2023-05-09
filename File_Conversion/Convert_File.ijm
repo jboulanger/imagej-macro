@@ -26,7 +26,8 @@ print("- Opening file \n" + filename);
 name = File.getNameWithoutExtension(filename);
 ext = getNewFileExtension(format);
 
-open(filename);
+run("Bio-Formats Importer", "open=["+filename+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
+
 id1 = processStack(channel, slice, frame, mip, mode, display_mode, contrast_mode);
 		
 if (split_channels) {
