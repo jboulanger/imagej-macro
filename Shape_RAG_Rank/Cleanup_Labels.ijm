@@ -20,5 +20,5 @@ ofile += File.separator() + "LabelEdited" + File.separator()
 ofile += File.nameWithoutExtension(inputFile)
 ofile += "_edited.tiff";
 print(ofile);
-//saveAs("TIFF", ofile);
+saveAs("TIFF", ofile);
 setBatchMode("exit and display");
