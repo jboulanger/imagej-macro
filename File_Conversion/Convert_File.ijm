@@ -6,6 +6,7 @@
 #@String (label="Mode", choices={"Same","8-bit","16-bit","32-bit"}, description="Select the bit-depth of the image") mode
 #@String (label="Display mode", choices={"composite","color","grayscale"}, description="Select display mode") display_mode
 #@Boolean (label="Split Channels", value=false, description="Split each image in a different channel") split_channels
+#@String(label="Contrast mode", choices={"Min/Max","Saturated 5%","Saturated 10%","None"}) contrast_mode
 #@File (label="Output folder", style="directory", description="Output folder where image will be saved") imageFolder
 #@String(label="Tag", value="", description="Add a tag to the filename before the extension when saving the image") tag
 #@String(label="Format",choices={"TIFF","PNG","JPEG"}, style="list", description="File format as in the saveAs() command") format
@@ -26,7 +27,7 @@ name = File.getNameWithoutExtension(filename);
 ext = getNewFileExtension(format);
 
 open(filename);
-id1 = processImage(channel, slice, frame, mip, mode, display_mode);
+id1 = processStack(channel, slice, frame, mip, mode, display_mode, contrast_mode);
 		
 if (split_channels) {
 	selectImage(id1);
@@ -62,11 +63,18 @@ function getNewFileExtension(format) {
 	return ".tif";
 }
 
-function processImage(channel, slice, frame, mip, mode, display_mode) {
+function processStack(channel, slice, frame, mip, mode, display_mode, contrast_mode) {
+	/*
+	 * Process a stack (Select planes, MIP, channel, bit depth)
+	 * 
+	 */
+	
 	id0 = getImageID();
+	
 	if (nSlices==1) {
 		return id0;
 	}
+	
 	Stack.getDimensions(width, height, channels, slices, frames);
 	if (!matches(channel, "all") || !matches(slice, "all") || !matches(frame, "all") ) {
 		if (matches(channel, "all")) {
@@ -96,9 +104,22 @@ function processImage(channel, slice, frame, mip, mode, display_mode) {
 		selectImage(id2);
 	}
 	
+	for (channel= 1; channel <= channels; channel++) {
+		Stack.setChannel(channel);
+		if (matches(contrast_mode, "Min/Max")) {
+			resetMinAndMax();
+		} else if (matches(contrast_mode, "Saturated 5%")) {
+			run("Enhance Contrast", "saturated=0.05");
+		} else if (matches(contrast_mode, "Saturated 10%")) {
+			run("Enhance Contrast", "saturated=0.1");
+		} 
+	}
+	
+	Stack.setDisplayMode(display_mode);
+	
 	if (!matches(mode,"Same")){
 		run(mode);
 	}
-	Stack.setDisplayMode(display_mode);
+	
 	return getImageID();
 }

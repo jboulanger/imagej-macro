@@ -1,4 +1,4 @@
-#@String(choices={"Estimate Beads","Estimate ROI","Apply","Show beads"}) mode
+#@String(choices={"Estimate Beads","Estimate ROI","Apply","Show beads","Test"}) mode
 #@String(choices={"Affine","Quadratic"}) model
 #@String(label="table name",value="Models.csv") tblname
 
@@ -51,9 +51,20 @@ if (matches(mode, "Estimate Beads")) {
 	estimateTransformROI(model,tblname);
 } else if (matches(mode,"Show beads")) {
 	showBeads();
-} else {
+} else if (matches(mode,"Apply")){
 	print("Apply transform");
 	applyTransform(tblname);
+} else {
+	print("Test");
+	run("Close All");
+	generateTestImage();
+	model="Quadratic";
+	estimateTransform(model,tblname);
+	run("Select None");
+	run("Duplicate...","title=[test aligned] duplicate");
+	Overlay.remove();
+	applyTransform(tblname);
+	measureTestError(getImageID());
 }
 print("Done");
 
@@ -67,7 +78,7 @@ function generateTestImage() {
 	c = 1e-1;
 	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
 	//Array.print(M);
-	rho = 1;
+	rho = 0.9;
 	for (k = 0; k < N; k++) {
 		x = w/8 + 3/4*w * random;
 		y = h/8 + 3/4*h * random;
@@ -82,7 +93,7 @@ function generateTestImage() {
 		xt = w * (xt + 1) / 2;
 		yt = h * (yt + 1) / 2;
 		Stack.setChannel(2);
-		if (random<rho) {
+		if (random < rho) {
 			drawGaussian(xt,yt);
 		}
 	}
@@ -171,7 +182,7 @@ function estimateTransform(degree,tblname) {
 		run("Z Project...", "projection=[Max Intensity]");
 	}
 	
-	run("Set Measurements...", "  redirect=None decimal=3");
+	run("Set Measurements...", "  redirect=None decimal=6");
 	for (frame = 1; frame <= frames; frame++) {
 		for (channel = 1; channel <= channels; channel++) {
 			selectImage(id0);
@@ -251,35 +262,42 @@ function icp(X,Y) {
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
-	e0 = 0;
+	MX = matmul(X,M);
+	e1 = 1e6;
 
-	for (iter = 0; iter < 100; iter++) {
-
-		MX = matmul(X,M);
+	for (iter = 0; iter < 10; iter++) {
+		
+		
 		Yi = smatch(MX,Y);
+		
+		E = errorDistance(MX,Yi);	
+		e0 = matmean(E,-1);		
+		I = matbelowthreshold(E, e0);
+		Xs = matsubsetrow(X, I);
+		Yis = matsubsetrow(Yi, I);
+		
+		M = solve(Xs, Yis);				
+
+		MX = matmul(X, M);
+		e0 = e1;
 		E = errorDistance(MX,Yi);
-		e0 = matmean(E,-1);
-
-		E = matbelowthreshold(E,4*e0);
-		Xs = matsubsetrow(X,E);
-		Yis = matsubsetrow(Yi,E);
-		M = solve(Xs,Yis);
-
-		MX = matmul(X,M);
-		e1 = meanErrorDistance(MX,Yi);
+		e1 = matmean(E,-1);		
 
 		print("error : " + e1 + ", relative variation: "+ (e1-e0) / (e1+e0));
 		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-12) { break++; }
 	}
 	//MXs = matmul(Xs,M);
 	M = mattranspose(M);
-	drawMatch(Xs,Yis);
+	setColor("red");
+	drawMatch(X, Yi);
+	setColor("green");
+	drawMatch(Xs, Yis);
 	return M;
 }
 
 function drawMatch(X,Y) {
 	// draw a line between each rows of X and Y
-	getDimensions(w, h, channels, slices, frames);
+	getDimensions(w, h, channels, slices, frames);	
 	for (i = 0; i < matrow(X); i++) {
 		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
 		Overlay.show();
@@ -315,9 +333,10 @@ function smatch(X,Y) {
 	//print(matshape2str(X,"X"));
 	//print(matshape2str(Y,"Y"));
 	C = pairwiseDistance(X,Y);
-	P = sinkhorn_uniform(C,-1);
-	//mat2img(P,"P");
-	Yi = matzeros(X[0],Y[1]);
+	P = sinkhorn_uniform(C,-1);	
+	pmax=matmax(P,-1);
+	id=getImageID();mat2img(C,"P");selectImage(id);
+	Yi = matzeros(X[0],Y[1]);	
 	for (i = 0; i < X[0]; i++) {
 		maxi = -1;
 		jstar = 0;
@@ -329,9 +348,14 @@ function smatch(X,Y) {
 			}
 		}
 		// copy x and y values in Yi corresponing to the
-		// closest match to Xi
-		Yi[2+0+i*2] = Y[2+0+jstar*2];
-		Yi[2+1+i*2] = Y[2+1+jstar*2];
+		// closest match to Xi	
+		if (maxi > pmax) {
+			Yi[2+0+i*2] = Y[2+0+jstar*2];
+			Yi[2+1+i*2] = Y[2+1+jstar*2];
+		} else {
+			Yi[2+0+i*2] = -1e6;
+			Yi[2+1+i*2] = -1e6;
+		}
 	}
 	return Yi;
 }
@@ -364,16 +388,17 @@ function sinkhorn(C,p,q,gamma) {
 	assert((matsize(q) == m), "Size of C ["+n+"x"+m+"] and p ["+matsize(q)+"] do not match");
 	p = matreshape(p,n,1);
 	q = matreshape(q,m,1);
+	
 	// normalize p and q
 	p = mat_normalize_sum(p);
 	q = mat_normalize_sum(q);
 
 	// compute a default gamma value from C
 	if (gamma < 0) {
-		minc = C[2];
+		minc = matmin(C,-1);//C[2];
 		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}
-		gamma = maxOf(0.00001,200*minc);
-		print(" min c: " + minc + " gamma = " + gamma);
+		gamma = maxOf(0.0001, 10*minc);
+		print("\n*** min c: " + minc + " gamma = " + gamma + " ***\n");
 	}
 	// compute xi = exp(-C/gamma)
 	xi = matzeros(n,m);
@@ -534,10 +559,10 @@ function getBeadsLocation(channel, frame) {
 	run("Select None");
 	run("Duplicate...", "duplicate channels="+channel+" frames="+frame);
 	run("32-bit");
-	run("Gaussian Blur...", "sigma=1");
+	run("Gaussian Blur...", "sigma=2");
 	id1 = getImageID();
 	run("Duplicate...", " ");
-	run("Gaussian Blur...", "sigma=2");
+	run("Gaussian Blur...", "sigma=6");
 	id2 = getImageID();
 	imageCalculator("Subtract ", id1, id2);
 	getStatistics(area, mean, min, max, std, histogram);
