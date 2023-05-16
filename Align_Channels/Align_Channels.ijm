@@ -181,7 +181,7 @@ function estimateTransform(degree,tblname) {
 	if (slices > 1) {
 		run("Z Project...", "projection=[Max Intensity]");
 	}
-	
+
 	run("Set Measurements...", "  redirect=None decimal=6");
 	for (frame = 1; frame <= frames; frame++) {
 		for (channel = 1; channel <= channels; channel++) {
@@ -189,7 +189,7 @@ function estimateTransform(degree,tblname) {
 			getBeadsLocation(channel, frame);
 		}
 	}
-	
+
 	setBatchMode(false);
 	for (channel = 2; channel <= channels; channel++) {
 		Stack.setChannel(channel);
@@ -266,38 +266,46 @@ function icp(X,Y) {
 	e1 = 1e6;
 
 	for (iter = 0; iter < 10; iter++) {
-		
-		
-		Yi = smatch(MX,Y);
-		
-		E = errorDistance(MX,Yi);	
-		e0 = matmean(E,-1);		
-		I = matbelowthreshold(E, e0);
-		Xs = matsubsetrow(X, I);
-		Yis = matsubsetrow(Yi, I);
-		
-		M = solve(Xs, Yis);				
 
+
+		MX = matmul(X,M);
+		I = smatch(MX,Y);
+		XI = matpermuterow(X, matextractcolumn(I, 0));
+		YI = matpermuterow(Y, matextractcolumn(I, 1));		
+		M = solve(XI, YI);
+		MXI = matmul(XI,M);
+		E = errorDistance(MXI,YI);
+		e1 = matmean(E,-1);
+		
+		for (inner = 0; inner < 10; inner++) {
+			E = errorDistance(MXI,YI);			
+			J = matbelowthreshold(E, 1.5 * e1);
+			XIs = matsubsetrow(XI, J);
+			YIs = matsubsetrow(YI, J);
+			M = solve(XIs, YIs);
+			MXI = matmul(XI,M);
+		}
+		
+		/*
 		MX = matmul(X, M);
 		e0 = e1;
 		E = errorDistance(MX,Yi);
-		e1 = matmean(E,-1);		
+		e1 = matmean(E,-1);
 
 		print("error : " + e1 + ", relative variation: "+ (e1-e0) / (e1+e0));
 		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-12) { break++; }
+		*/
 	}
 	//MXs = matmul(Xs,M);
 	M = mattranspose(M);
-	setColor("red");
-	drawMatch(X, Yi);
-	setColor("green");
-	drawMatch(Xs, Yis);
+	setColor("yellow");
+	drawMatch(XI, YI);
 	return M;
 }
 
 function drawMatch(X,Y) {
 	// draw a line between each rows of X and Y
-	getDimensions(w, h, channels, slices, frames);	
+	getDimensions(w, h, channels, slices, frames);
 	for (i = 0; i < matrow(X); i++) {
 		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
 		Overlay.show();
@@ -328,37 +336,57 @@ function nnmatch(X,Y) {
 }
 
 function smatch(X,Y) {
-	// for each row of Y[Nx2] find the closest row in X[Nx2]
-	// use the sinkhorn algorithm to find the best match
-	//print(matshape2str(X,"X"));
-	//print(matshape2str(Y,"Y"));
-	C = pairwiseDistance(X,Y);
-	P = sinkhorn_uniform(C,-1);	
-	pmax=matmax(P,-1);
-	id=getImageID();mat2img(C,"P");selectImage(id);
-	Yi = matzeros(X[0],Y[1]);	
-	for (i = 0; i < X[0]; i++) {
+	/* Sinkhorn match
+	 * X : [N,2] coordinates
+	 * Y : [N,2] coordinates
+	 */
+	n = matrow(X);
+	m = matrow(Y);
+	C = computeAssignmentCostMatrix(X, Y);
+	//id=getImageID();mat2img(C,"C");selectImage(id);
+	P = sinkhorn_uniform(C,-1);
+	pmax = matmax(P,-1);
+	//id = getImageID(); mat2img(P,"P"); wait(100); selectImage(id);
+
+	// find candidate matches
+	I = matzeros(n*m, 2);	
+	k = 0;	
+	for (i = 0; i < n; i++) {				
+		
+		// find max along j
+		jmaxi = -1;
 		maxi = -1;
-		jstar = 0;
-		for (j = 0; j < Y[0]; j++) {
-			pij = matget(P,i,j);
-			if (pij > maxi) {
-				maxi = pij;
-				jstar = j;
+		for (j = 0; j < m; j++) {
+			val = matget(P,i,j);
+			if (val > maxi) {
+				jmaxi = j;
+				maxi = val;
 			}
 		}
-		// copy x and y values in Yi corresponing to the
-		// closest match to Xi	
-		if (maxi > pmax) {
-			Yi[2+0+i*2] = Y[2+0+jstar*2];
-			Yi[2+1+i*2] = Y[2+1+jstar*2];
-		} else {
-			Yi[2+0+i*2] = -1e6;
-			Yi[2+1+i*2] = -1e6;
+		
+		// check if the also max along i
+		imaxi = -1;
+		maxi = -1;
+		for (ii = 0; ii < n; ii++){
+			val = matget(P,ii,jmaxi);
+			if (val >= maxi) {
+				imaxi = ii;
+				maxi = val;
+			}
 		}
-	}
-	return Yi;
+		
+		// record the pair
+		if (imaxi == i && jmaxi > 0) {
+			matset(I,k,0,i);
+			matset(I,k,1,jmaxi);
+			k = k + 1;				
+		}		
+	}	
+	// set the number of row to k
+	I[0] = k;	
+	return I;
 }
+
 
 function sinkhorn_uniform(C,gamma) {
 	// Optimal transport using uniform weights
@@ -388,18 +416,18 @@ function sinkhorn(C,p,q,gamma) {
 	assert((matsize(q) == m), "Size of C ["+n+"x"+m+"] and p ["+matsize(q)+"] do not match");
 	p = matreshape(p,n,1);
 	q = matreshape(q,m,1);
-	
+
 	// normalize p and q
 	p = mat_normalize_sum(p);
 	q = mat_normalize_sum(q);
 
 	// compute a default gamma value from C
 	if (gamma < 0) {
-		minc = matmin(C,-1);//C[2];
-		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}
-		gamma = maxOf(0.0001, 10*minc);
+		minc = matmin(C,-1);
+		gamma = maxOf(1e-5, 100*minc);		
 		print("\n*** min c: " + minc + " gamma = " + gamma + " ***\n");
 	}
+
 	// compute xi = exp(-C/gamma)
 	xi = matzeros(n,m);
 	for (i = 0; i < n; i++) {
@@ -414,7 +442,7 @@ function sinkhorn(C,p,q,gamma) {
 	// b = q ./ (x'*a)
 	xit = mattranspose(xi);
 	b = matones(m,1);
-	for (iter = 0; iter < 30; iter++) {
+	for (iter = 0; iter < 50; iter++) {
 		xib = matmul(xi,b);
 		a = mat_div(p,xib);
 		xita = matmul(xit,a);
@@ -503,6 +531,46 @@ function pairwiseDistance(p,q) {
 	return a;
 }
 
+function computeAssignmentCostMatrix(p,q) {
+	/* Cost matrix with missing points
+	 *
+	 * P : coordinate matrix [n,2]
+	 * Q : coordinate matrix [m,2]
+	 * return distance [n+m x m+n] matrix
+	 */
+	n = matrow(p);
+	m = matrow(q);
+	D = 2;
+	a = matzeros(n+m,m+n);	
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {
+			s = 0;
+			for (k = 0; k < D; k++) {
+				d = matget(p,i,k) - matget(q,j,k);
+				s += d*d;
+			}
+			matset(a,i,j,sqrt(s));			
+		}
+	}
+	cmax = matmax(a,-1);
+	for (i = 0; i < n; i++) {
+		for (j = m; j < m+n; j++) {
+			matset(a,i,j,cmax);
+		}
+	}
+	for (i = n; i < n+m; i++) {
+		for (j = 0; j < m; j++) {
+			matset(a,i,j,cmax);
+		}
+	}
+	for (i = n; i < n+m; i++) {
+		for (j = m; j < n+m; j++) {
+			matset(a,i,j,2*cmax);
+		}
+	}
+	return a;
+}
+
 function mat_normalize_sum(A) {
 	// normalize A by the sum over all indices
 	B = A;
@@ -554,6 +622,7 @@ function loadCoords(channel, M) {
 
 function getBeadsLocation(channel, frame) {
 	// Get location of beads in all channels and save the results in a result table
+	
 	colors = newArray("red","green","blue","white");
 	id = getImageID();
 	run("Select None");
@@ -573,7 +642,7 @@ function getBeadsLocation(channel, frame) {
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	selectImage(id);
 	for (i = n0; i < n1; i++){
-		roiManager("select",i);		
+		roiManager("select",i);
 		xm = getValue("XM")/pixelWidth;
 		ym = getValue("YM")/pixelWidth;
 		Stack.setChannel(channel);
@@ -584,8 +653,8 @@ function getBeadsLocation(channel, frame) {
 		}
 		setResult("X",i,xm);
 		setResult("Y",i,ym);
-		setResult("Channel",i, channel);		
-		setResult("Frame",i, frame);		
+		setResult("Channel",i, channel);
+		setResult("Frame",i, frame);
 		Overlay.addSelection(colors[(channel-1)%colors.length]);
 		Overlay.show;
 		updateResults();
@@ -593,6 +662,8 @@ function getBeadsLocation(channel, frame) {
 	updateResults();
 	selectImage(id1);close();
 	selectImage(id2);close();
+	run("Select None");
+	
 }
 
 function fitBeadXY(x0,y0,s) {
@@ -774,7 +845,7 @@ function matones(n,m) {
 }
 
 function matreshape(A,n,m) {
-	// Reshape the matrix
+	// return a reshaped matrix
 	B = A;
 	B[0] = n;
 	B[1] = m;
@@ -1120,11 +1191,34 @@ function matsubsetrow(A,I) {
 	return B;
 }
 
+function matpermuterow(A,I) {
+	n = matrow(I);
+	m = matcol(A);
+	B = matzeros(n, matcol(A));
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {
+			matset(B, i, j, matget(A, matget(I,i,0), j));
+		}
+	}
+	return B;
+}
+
+function matextractcolumn(A, j) {
+	/* Extract the jth column from A*/
+	n = matrow(I);
+	B = matzeros(n, 1);
+	for (i = 0; i < n; i++) {
+		matset(B, i, 0, matget(A, i, j));
+	}
+	return B;
+}
+
 function matsampler(n,m,rho) {
-	// Generate a random sampling matrix
-	// n: number of rows
-	// m : number of colmns
-	// rho: proba [0-1] of being 1
+	/* Generate a random sampling matrix
+	 * n: number of rows
+	 * m : number of colmns
+	 * rho: proba [0-1] of being 1
+	 */
 	I = matzeros(n,m);
 	for (i=2;i<n*m;i++) {
 		if (random < rho) {

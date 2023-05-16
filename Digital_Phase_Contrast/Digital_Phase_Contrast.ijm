@@ -42,7 +42,7 @@ run("Collect Garbage");
 setBatchMode("exit and display");
 
 function postprocess() {
-	run("Subtract Background...", "rolling=200 sliding stack");			
+	run("Subtract Background...", "rolling=200 sliding stack");
 	if (nSlices > 1) {		
 		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
 	} else {
