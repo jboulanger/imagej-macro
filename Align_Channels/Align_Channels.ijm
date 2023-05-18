@@ -72,10 +72,10 @@ function generateTestImage() {
 	w = 500;
 	h = 500;
 	newImage("test", "8-bit composite-mode", w, h, 2, 1, 1);
-	N = 30;
-	a = 1e-1;
-	b = 1e-2;
-	c = 1e-1;
+	N = 10;
+	a = 2e-2;
+	b = 1e-3;
+	c = 1e-4;
 	M = newArray(a*random,1+b*random,b*random,c*random,c*random,c*random,   a*random,b*random,1+b*random,c*random,c*random,c*random);
 	//Array.print(M);
 	rho = 0.9;
@@ -178,7 +178,8 @@ function estimateTransform(degree,tblname) {
 	id0 = getImageID();
 	Table.create(tblname);
 	Stack.getDimensions(width, height, channels, slices, frames);
-	if (slices > 1) {
+	if (slices > 1) {		
+		print("Max intensity projection");
 		run("Z Project...", "projection=[Max Intensity]");
 	}
 
@@ -222,7 +223,7 @@ function estimateTransformROI(degree,tblname) {
 		M = estimateTfm(1,channel,degree);
 		cname = "M1" + channel;
 		print("Saving model as column " + cname);
-		selectWindow(tblname);
+		selectWindow(tblname);		
 		Table.setColumn(cname, M);
 		Table.update();
 	}
@@ -253,6 +254,29 @@ function estimateTfm(c1,c2,degree) {
 	return M;
 }
 
+function icpold(X,Y) {
+	M = matzeros(X[1],Y[1]);
+	matset(M,1,0,1);
+	matset(M,2,1,1);
+	print(mat2str(M,"M"));
+	
+	for (iter = 0; iter < 2; iter++) {
+		MX = matmul(X,M);
+		print(mat2str(MX,"MX"));
+		I = nnmatch(MX,Y);
+		XI = matpermuterow(X, matextractcolumn(I, 0));
+		YI = matpermuterow(Y, matextractcolumn(I, 1));
+		print(mat2str(XI,"XI"));
+		print(mat2str(YI,"YI"));
+		M = solve_from(XI,YI,M,100);		
+		print(mat2str(M,"M"));
+	}
+	
+	setColor("yellow");	drawMatch(XI, YI);
+	M = mattranspose(M);
+	return M;
+}
+
 function icp(X,Y) {
 	// iterative closest point
 	// X : coordinate matrix
@@ -262,66 +286,76 @@ function icp(X,Y) {
 	M = matzeros(X[1],Y[1]);
 	matset(M,1,0,1);
 	matset(M,2,1,1);
-	MX = matmul(X,M);
+	
 	e1 = 1e6;
 
-	for (iter = 0; iter < 10; iter++) {
+	for (iter = 0; iter < 2; iter++) {
 
-
-		MX = matmul(X,M);
-		I = smatch(MX,Y);
+		MX = matmul(X,M);		
+		I = smatch(MX,Y);		
 		XI = matpermuterow(X, matextractcolumn(I, 0));
 		YI = matpermuterow(Y, matextractcolumn(I, 1));		
-		M = solve(XI, YI);
-		MXI = matmul(XI,M);
+		M = solve_from(XI,YI,M,10000,1e-9);
+		MXI = matmul(XI,M);		
 		E = errorDistance(MXI,YI);
+		e0 = e1;
 		e1 = matmean(E,-1);
 		
-		for (inner = 0; inner < 10; inner++) {
-			E = errorDistance(MXI,YI);			
-			J = matbelowthreshold(E, 1.5 * e1);
+		/*
+		for (inner = 0; inner < 1; inner++) {
+			E = errorDistance(MXI,YI);						
+			J = matbelowthreshold(E, 1.5*e1);
 			XIs = matsubsetrow(XI, J);
-			YIs = matsubsetrow(YI, J);
+			YIs = matsubsetrow(YI, J);			
+			print("number of points " + XIs.length);
 			M = solve(XIs, YIs);
 			MXI = matmul(XI,M);
 		}
 		
-		/*
-		MX = matmul(X, M);
+		M = solve(XI, YI);
+		MXI = matmul(XI,M);
+		E = errorDistance(MXI,YI);
 		e0 = e1;
-		E = errorDistance(MX,Yi);
-		e1 = matmean(E,-1);
-
+		e1 = matmean(E,-1);				
 		print("error : " + e1 + ", relative variation: "+ (e1-e0) / (e1+e0));
-		if (iter > 2 && abs(e1-e0)/(e1+e0)<1e-12) { break++; }
+		if (iter > 0 && abs(e1-e0)/(e1+e0)<1e-12) { break++; }
 		*/
 	}
 	//MXs = matmul(Xs,M);
 	M = mattranspose(M);
-	setColor("yellow");
-	drawMatch(XI, YI);
+	setColor("yellow");	drawMatch(XI, YI);
 	return M;
 }
 
 function drawMatch(X,Y) {
 	// draw a line between each rows of X and Y
 	getDimensions(w, h, channels, slices, frames);
-	for (i = 0; i < matrow(X); i++) {
-		Overlay.drawLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
-		Overlay.show();
+	for (i = 0; i < matrow(X); i++) {		
+		if (matcol(X)==2) {
+			makeLine(w*(matget(X,i,0)+1)/2, h*(matget(X,i,1)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
+		} else {
+			makeLine(w*(matget(X,i,1)+1)/2, h*(matget(X,i,2)+1)/2, w*(matget(Y,i,0)+1)/2, h*(matget(Y,i,1)+1)/2);
+		}
+		Roi.setStrokeWidth(0.1);
+		Overlay.addSelection("yellow");		
+		//Overlay.show();
 	}
+	run("Select None");
 }
 
 function nnmatch(X,Y) {
 	// for each row of Y[Nx2] find the closest row in X[Nx2]
-	Yi = matzeros(X[0],Y[1]);
+	n = matrow(X);
+	m = matrow(Y);
+	I = matzeros(n*m, 2);
+	k = 0;	
 	for (i = 0; i < X[0]; i++) {
 		dstar = 1e6;
 		jstar = 0;
 		for (j = 0; j < Y[0]; j++) {
 			dx = X[2+0+i*2] - Y[2+0+j*2];
 			dy = X[2+1+i*2] - Y[2+1+j*2];
-			d = dx*dx+dy*dy;
+			d = sqrt(dx*dx+dy*dy);
 			if (d < dstar) {
 				dstar = d;
 				jstar = j;
@@ -329,10 +363,14 @@ function nnmatch(X,Y) {
 		}
 		// copy x and y values in Yi corresponing to the
 		// closest match to Xi
-		Yi[2+0+i*2] = Y[2+0+jstar*2];
-		Yi[2+1+i*2] = Y[2+1+jstar*2];
+		if (dstar < 0.05) {
+			matset(I,k,0,i);
+			matset(I,k,1,jstar);
+			k = k + 1;				
+		}		
 	}
-	return Yi;
+	I[0] = k;
+	return I;
 }
 
 function smatch(X,Y) {
@@ -343,26 +381,27 @@ function smatch(X,Y) {
 	n = matrow(X);
 	m = matrow(Y);
 	C = computeAssignmentCostMatrix(X, Y);
+	//C = pairwiseDistance(X,Y);
 	//id=getImageID();mat2img(C,"C");selectImage(id);
-	P = sinkhorn_uniform(C,-1);
+	P = sinkhorn_uniform(C,0.05);
 	pmax = matmax(P,-1);
 	//id = getImageID(); mat2img(P,"P"); wait(100); selectImage(id);
 
 	// find candidate matches
 	I = matzeros(n*m, 2);	
 	k = 0;	
-	for (i = 0; i < n; i++) {				
-		
+	for (i = 0; i < n; i++) {						
 		// find max along j
 		jmaxi = -1;
 		maxi = -1;
 		for (j = 0; j < m; j++) {
 			val = matget(P,i,j);
-			if (val > maxi) {
+			if (val > maxi && val > pmax/2) {
 				jmaxi = j;
 				maxi = val;
 			}
 		}
+		if (jmaxi == -1) {continue;}
 		
 		// check if the also max along i
 		imaxi = -1;
@@ -374,13 +413,13 @@ function smatch(X,Y) {
 				maxi = val;
 			}
 		}
-		
+				
 		// record the pair
-		if (imaxi == i && jmaxi > 0) {
+		if (imaxi == i && jmaxi >= 0 ) {
 			matset(I,k,0,i);
 			matset(I,k,1,jmaxi);
 			k = k + 1;				
-		}		
+		}
 	}	
 	// set the number of row to k
 	I[0] = k;	
@@ -424,7 +463,7 @@ function sinkhorn(C,p,q,gamma) {
 	// compute a default gamma value from C
 	if (gamma < 0) {
 		minc = matmin(C,-1);
-		gamma = maxOf(1e-5, 100*minc);		
+		gamma = maxOf(1e-5, 200*minc);		
 		print("\n*** min c: " + minc + " gamma = " + gamma + " ***\n");
 	}
 
@@ -542,6 +581,7 @@ function computeAssignmentCostMatrix(p,q) {
 	m = matrow(q);
 	D = 2;
 	a = matzeros(n+m,m+n);	
+	cmax = 0;
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {
 			s = 0;
@@ -549,10 +589,20 @@ function computeAssignmentCostMatrix(p,q) {
 				d = matget(p,i,k) - matget(q,j,k);
 				s += d*d;
 			}
-			matset(a,i,j,sqrt(s));			
+			matset(a,i,j, sqrt(s));
+			cmax += sqrt(s);
 		}
 	}
 	cmax = matmax(a,-1);
+	//cmax = 0.2;//matmean(a,-1);	
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < m; j++) {
+			if (matget(a,i,j) >	cmax) {
+				matset(a,i,j, cmax);
+			}
+		}
+	}
+	
 	for (i = 0; i < n; i++) {
 		for (j = m; j < m+n; j++) {
 			matset(a,i,j,cmax);
@@ -568,6 +618,7 @@ function computeAssignmentCostMatrix(p,q) {
 			matset(a,i,j,2*cmax);
 		}
 	}
+	
 	return a;
 }
 
@@ -635,9 +686,9 @@ function getBeadsLocation(channel, frame) {
 	id2 = getImageID();
 	imageCalculator("Subtract ", id1, id2);
 	getStatistics(area, mean, min, max, std, histogram);
-	setThreshold(mean+2*std, max);
+	setThreshold(mean+4*std, max);
 	n0 = roiManager("count");
-	run("Analyze Particles...", "size=5-Infinity pixel circularity=0.1-1.00 add");
+	run("Analyze Particles...", "size=10-Infinity pixel circularity=0.1-1.00 add");
 	n1 = roiManager("count");
 	getPixelSize(unit, pixelWidth, pixelHeight);
 	selectImage(id);
@@ -655,8 +706,17 @@ function getBeadsLocation(channel, frame) {
 		setResult("Y",i,ym);
 		setResult("Channel",i, channel);
 		setResult("Frame",i, frame);
-		Overlay.addSelection(colors[(channel-1)%colors.length]);
-		Overlay.show;
+		//Overlay.drawEllipse(xm-1, ym-1, 2, 2);
+		//Overlay.drawEllipse(100,100,2,2);
+		//Overlay.show;
+		makeOval(xm-0.5, ym-0.5, 2, 2);
+		Roi.setStrokeColor(colors[(channel-1)%colors.length]);
+		Roi.setStrokeWidth(0.1);
+		Overlay.addSelection();
+		
+		//Overlay.setStrokeColor(colors[(channel-1)%colors.length]);
+		//Overlay.addSelection(colors[(channel-1)%colors.length]);
+		//Overlay.show;
 		updateResults();
 	}
 	updateResults();
@@ -673,7 +733,7 @@ function fitBeadXY(x0,y0,s) {
 			bg = minOf(bg, getPixel(x0+dx, y0+dy));
 		}
 	}
-	for (i = 0; i < 20; i++) {
+	for (i = 0; i < 30; i++) {
 		sv = 0;
 		x1 = 0;
 		y1 = 0;
@@ -1119,8 +1179,7 @@ function matmin(A,dim) {
 function solve(A,B) {
 	// Solve A*X=B by iterating X=X-At(AX - B)
 	// A[NxM] x X[MxK] = B [NxK]
-	//print(mat2str(A,"A"));
-	//print(mat2str(B,"B"));
+	
 	N = A[0];
 	M = A[1];
 	K = B[1];
@@ -1129,13 +1188,38 @@ function solve(A,B) {
 	AtB = matmul(At,B);
 	X = matzeros(M,K);
 	a = matnorm(AtA);
-	for (iter = 0; iter < 1000; iter++) {
+	for (iter = 0; iter < 10000; iter++) {
 		AtAX = matmul(AtA,X);
 		dX = matadd(AtAX,AtB,-1);
 		X = matadd(X, dX, -1/(2*a));
+		if (matmax(dX,-1) < 1e-9) {break;}
 	}
 	return X;
 }
+
+function solve_from(A,B,X0,niter,eps) {
+	// Solve A*X=B by iterating X=X-At(AX - B)
+	// A[NxM] x X[MxK] = B [NxK]
+	
+	N = A[0];
+	M = A[1];
+	K = B[1];
+	At = mattranspose(A);
+	AtA = matmul(At,A);
+	AtB = matmul(At,B);
+	X = X0;
+	a = matnorm(AtA);
+	for (iter = 0; iter < niter; iter++) {
+		AtAX = matmul(AtA,X);
+		dX = matadd(AtAX,AtB,-1);
+		X = matadd(X, dX, -1/(2*a));
+		delta = maxOf(abs(matmin(dX,-1)), abs(matmax(dX,-1)));
+		if (delta < eps) {break;}
+	}
+	print("Stopping after " + iter + "/" + niter+ ", delta: " + delta);
+	return X;
+}
+
 
 function matnorm(A) {
 	// L2 norm of the matrix (sum a_ij^2)

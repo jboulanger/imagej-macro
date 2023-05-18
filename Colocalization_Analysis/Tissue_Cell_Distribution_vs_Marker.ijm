@@ -36,7 +36,7 @@ if (matches(action, "Show Info")) {
 	showCenterCrop(path, info, image, resolution1, channel1, tile_size, tile_size);
 	exit();
 } else if (matches(action, "Display Marker Channel")) {
-	showCenterCrop(path, info, image, resolution2, channel2, tile_size, tile_size);
+	showCenterCrop(path, info, image, resolution1, channel2, tile_size, tile_size);
 	exit();
 }
 coords = detectBrightCells(path, info, image, resolution1, channel1, threshold1, tile_size, tile_size);
