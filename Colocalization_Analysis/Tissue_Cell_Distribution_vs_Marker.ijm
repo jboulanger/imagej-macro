@@ -21,7 +21,10 @@
  * Jerome for Jane 2023
  */
 
-run("Close All");
+start_time = getTime();
+print("Path : " + path);
+print("Image : " + image);
+
 run("Bio-Formats Macro Extensions");
 
 // convert the channel indices to bioformat extension convention 
@@ -30,24 +33,26 @@ channel2--;
 
 info = parseCellSenseSeries(path);
 if (matches(action, "Show Info")) {
-	showCellSenseInfo(info);
-	exit();
-} else if (matches(action, "Display Cell Channel")) {
+	showCellSenseInfo(info);	
+} else if (matches(action, "Display Cell Channel")) {	
 	showCenterCrop(path, info, image, resolution1, channel1, tile_size, tile_size);
-	exit();
+	//showPositions(path, info, image, resolution1);	
 } else if (matches(action, "Display Marker Channel")) {
-	showCenterCrop(path, info, image, resolution1, channel2, tile_size, tile_size);
-	exit();
+	showCenterCrop(path, info, image, resolution1, channel2, tile_size, tile_size);	
+} else {	
+	run("Close All");
+	coords = detectBrightCells(path, info, image, resolution1, channel1, threshold1, tile_size, tile_size);
+	mask = segmentRegion(path, info, image, resolution2, channel2);
+	edm = distanceToRegion(info, image, resolution2, mask, coords);
+	selectImage(mask); close();
+	selectImage(edm);
+	statisticalRandomAnalysis(edm);
+	selectImage(edm); close();
+	createVisualization(path, info, image, resolution2);	
 }
-coords = detectBrightCells(path, info, image, resolution1, channel1, threshold1, tile_size, tile_size);
-mask = segmentRegion(path, info, image, resolution2, channel2);
-edm = distanceToRegion(info, image, resolution2, mask, coords);
-selectImage(mask); close();
-selectImage(edm);
-statisticalRandomAnalysis(edm);
-selectImage(edm); close();
-createVisualization(path, info, image, resolution2);
 
+end_time = getTime();
+print("Finised in " + (end_time-start_time) / 1000 + " seconds.");
 
 function createVisualization(path, info, image, resolution) {
 	/*
@@ -59,9 +64,25 @@ function createVisualization(path, info, image, resolution) {
 	run("Bio-Formats Importer", "open=["+path+"] autoscale color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_"+(serie+1));
 	n = roiManager("count");
 	for (i = 0; i <	n; i++) {
-		roiManager("select", i);
+		roiManager("select", i);		
 		run("Add Selection...");
 	}
+	Stack.setChannel(1);
+	run("Blue");
+	resetMinAndMax();
+	//run("Enhance Contrast", "saturated=0.05");
+	Stack.setChannel(2);
+	run("Green");
+	resetMinAndMax();
+	//run("Enhance Contrast", "saturated=0.05");
+	Stack.setChannel(3);
+	run("Red");
+	resetMinAndMax();
+	run("Enhance Contrast", "saturated=0.05");
+	Stack.setChannel(4);
+	run("Grays");
+	resetMinAndMax();
+	//run("Enhance Contrast", "saturated=0.05");
 }
 
 function getArrayHistogram(a,nbins,min,max) {
@@ -82,6 +103,22 @@ function getArrayHistogram(a,nbins,min,max) {
 		}
 	}
 	return h;
+}
+
+function showPositions(info, image, resolution) {
+	/*
+	 * Show detection from the table position
+	 */
+	if (isOpen("Positions")) {
+		dx = getCellSenseValue(info, image, resolution, "Pixel size");
+		selectWindow("Positions");
+		x = Table.getColumn("X [um]");
+		y = Table.getColumn("Y [um]");
+		for (i = 0; i < x.length; i++) {			
+			Overlay.drawEllipse(x[i]/dx-1, y[i]/dx-1, 2, 2);
+			Overlay.add();
+		}
+	}
 }
 
 function statisticalRandomAnalysis(edm) {
@@ -173,10 +210,10 @@ function distanceToRegion(info, image, resolution, maskid, coords) {
 		y = coords[2*i+1] / dx;
 		if (Roi.contains(x, y)) {
 			makeOval(x-d/2, y-d/2, d, d);
-			Roi.setStrokeColor("blue");
+			Roi.setStrokeColor("#FFA500");
 			roiManager("add");
-			Table.set("X [um]", k, x);
-			Table.set("Y [um]", k, y);
+			Table.set("X [um]", k, coords[2*i]);
+			Table.set("Y [um]", k, coords[2*i+1]);
 			Table.set("Distance [um]", k, getValue("Mean"));
 			k++;
 		}
@@ -184,6 +221,26 @@ function distanceToRegion(info, image, resolution, maskid, coords) {
 	//roiManager("Show All without labels");
 	roiManager("Show None");
 	return distance_id;
+}
+
+function keepLargestROI() {
+	// keep the large roi from the roi manager
+	n = roiManager("count");		
+	area = newArray(n);
+	for (i = 0; i < n; i++) {
+		roiManager("select", i);
+		area[i] = getValue("Area");
+	}
+	perms = Array.rankPositions(area);
+	Array.print(perms);
+	for (i = perms.length-1; i >=0; i--) {
+		if (i != perms[perms.length-1]) {
+			roiManager("select", i);			
+			roiManager("delete");		
+		}
+	}
+	run("Select None");
+	roiManager("select", 0);	
 }
 
 function segmentRegion(path, info, image, resolution, channel) {
@@ -198,6 +255,7 @@ function segmentRegion(path, info, image, resolution, channel) {
 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager"); run("Close"); }
 	serie = getCellSenseSerie(info, image, resolution);
 	dx = getCellSenseValue(info, image, resolution, "Pixel size");
+	print("serie :" + serie + " dx :"+dx);
 	Ext.setId(path);
 	Ext.setSeries(serie);
 	Ext.openImage("low res", channel);
@@ -217,8 +275,8 @@ function segmentRegion(path, info, image, resolution, channel) {
 	setAutoThreshold("Otsu dark");
 	//setThreshold(getValue("Mean"), getValue("Max")+1);
 	run("Convert to Mask");
-	run("Create Selection");
-	roiManager("add");
+	run("Analyze Particles...", "size=0-Infinity add");	
+	keepLargestROI();	
 	selectImage(id0);close();
 
 	// segment bright areas and compute distance map
@@ -231,8 +289,8 @@ function segmentRegion(path, info, image, resolution, channel) {
 	setAutoThreshold("MaxEntropy dark");
 	//setThreshold(threshold, 65635);
 	run("Convert to Mask");
-	run("Analyze Particles...", "size=0-Infinity add");
-	n = roiManager("count");
+	run("Analyze Particles...", "size=0-Infinity add");			
+	n = roiManager("count");		
 	for (i = 1; i < n; i++) {
 		roiManager("select", i);
 		Roi.setStrokeColor("white");
@@ -243,18 +301,44 @@ function segmentRegion(path, info, image, resolution, channel) {
 }
 
 function showCenterCrop(path, info, image, resolution, channel, tile_width, tile_height) {
+	run("Close All");
 	width = getCellSenseValue(info, image, resolution, "X");
 	height = getCellSenseValue(info, image, resolution, "Y");
 	print("Image size " + width + " x " + height);
 	serie = getCellSenseSerie(info, image, resolution);
-	dx = getCellSenseValue(info, image, resolution, "Pixel size");
-	Ext.setId(path);
-	Ext.setSeries(serie);
-	x = maxOf(0, round(width/2 - tile_width / 2));
-	y = maxOf(0, round(height/2 - tile_height / 2));
-	w = minOf(x + tile_width, width) - x;
-	h = minOf(y + tile_height, height) - y;
-	Ext.openSubImage("test", channel, x, y, w, h);
+	dx = getCellSenseValue(info, image, resolution, "Pixel size");	
+	print("serie :" + serie + " dx :"+dx);
+	
+	Ext.setId(path);	
+	Ext.setSeries(serie);		
+	x0 = maxOf(0, round(width/2 - tile_width / 2));
+	y0 = maxOf(0, round(height/2 - tile_height / 2));
+	print("Origin " + x0 + ", " + y0 + " pixels.");	
+	w = minOf(x0 + tile_width, width) - x0;
+	h = minOf(y0 + tile_height, height) - y0;	
+	Ext.openSubImage("test", channel, x0, y0, w, h);
+	//run("Properties...", "channels=1 slices=1 frames=1 pixel_width="+dx+" pixel_height="+dx+" voxel_depth=0.5 origin="+x0+","+y0);	
+	id = getImageID();
+	
+	if (isOpen("Positions")) {		
+		print("Adding coordinate from Positions table");
+		diameter = 10;
+		selectWindow("Positions");
+		x = Table.getColumn("X [um]");
+		y = Table.getColumn("Y [um]");
+		selectImage(id);
+		for (i = 0; i < x.length; i++) {
+			// coordinate in the tile		
+			xi = x[i] / dx - x0;
+			yi = y[i] / dx - y0;
+			// locate cell as a circle overlay			
+			if (xi > 0 && xi < w && yi > 0 && yi < h) {
+				Overlay.drawEllipse(xi-diameter/2, yi-diameter/2, diameter, diameter);
+				Overlay.add();				
+			}
+		}
+		Overlay.show();
+	}	
 }
 
 function detectBrightCells(path, info, image, resolution, channel, threshold, tile_width, tile_height) {
@@ -268,15 +352,18 @@ function detectBrightCells(path, info, image, resolution, channel, threshold, ti
 	serie = getCellSenseSerie(info, image, resolution);
 	dx = getCellSenseValue(info, image, resolution, "Pixel size");
 	Ext.setId(path);
-	Ext.setSeries(serie);
+	Ext.setSeries(serie);	
 	coords = newArray(0);
+	ntile = 0;
 	for (y = 0; y < height; y += tile_height) {
 		for (x = 0; x < width; x += tile_width) {
 			w = minOf(x + tile_width, width) - x;
 			h = minOf(y + tile_height, height) - y;
-			print("Tile : " + w + "x" + h);
+			print("Tile " + ntile + " [" + w + "x" + h + "]");
 			ncoords = processTile(x,y,w,h,threshold, dx);
 			coords = Array.concat(coords, ncoords);
+			print("\\Update:Tile " + ntile + " [" + w + "x" + h + "] found " + ncoords.length/2 + " cells.");
+			ntile++;
 		}
 	}
 	setBatchMode(false);
@@ -294,6 +381,7 @@ function processTile(x,y,w,h, threshold, dx) {
 	id = getImageID();
 	// process the image
 	//run("Subtract Background...", "rolling=100");
+	run("Gaussian Blur...", "sigma=1");
 	setThreshold(threshold, getValue("Max") + 1);
 	if (isOpen("ROI Manager")) { selectWindow("ROI Manager"); run("Close"); }
 	run("Select None");
@@ -307,17 +395,20 @@ function processTile(x,y,w,h, threshold, dx) {
 	return coords;
 }
 
-function getROIsCenterCoordinates(x0,y0,dx) {
+function getROIsCenterCoordinates(x0,y0,px) {
 	/*
-	 * Store the coordinated of the centers in a array
+	 * Store the 2d coordinates of the centers in a array (n,2) array
+	 * x0 : x coordinate in pixels of the top left corner of the tile
+	 * y0 : y coordinate in pixels of the top left corner of the tile 
+	 * px : pixel size in micron
+	 * Return an array (n,2) of coordinates in microns
 	 */
 	n = roiManager("count");
-	coords = newArray(2*n);
-	getPixelSize(unit, pixelWidth, pixelHeight);
+	coords = newArray(2*n);	
 	for (i = 0; i < n; i++) {
 		roiManager("select", i);
-		coords[2*i] = x0 + dx * getValue("X") / pixelWidth;
-		coords[2*i+1] = y0 + dx * getValue("Y") / pixelHeight;
+		coords[2*i] = (x0 + getValue("X")) * px;
+		coords[2*i+1] = (y0 + getValue("Y")) * px;
 	}
 	return coords;
 }
@@ -351,7 +442,7 @@ function parseCellSenseSeries(path) {
 		Ext.getSizeZ(sizeZ);
 		Ext.getSizeC(sizeC);
 		Ext.getSizeT(sizeT);
-		Ext.getPixelsPhysicalSizeX(dx);
+		Ext.getPixelsPhysicalSizeX(dx);		
 		current_pixel_size = dx;
 		if (matches(name,"label")) {
 			current_fov = "label";
