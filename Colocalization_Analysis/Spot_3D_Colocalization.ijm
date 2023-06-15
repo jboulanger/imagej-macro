@@ -54,16 +54,16 @@
 
 start_time = getTime();
 
-mode=0;
+mode = 0;
 setBatchMode("hide");
 if (matches(path,".*test")) {
 	generateTestImage();
 	channela = 1;
 	channelb = 2;
-	spot_size = 0.2;
+	spot_size = 0.5;
 	id = getImageID();
 	basename = "test image";
-	mode=1;
+	mode = 1;
 } else if (matches(path,".*image")) {
 	print("[Using opened image "+getTitle()+"]");
 	basename = File.getNameWithoutExtension(getTitle);
@@ -71,7 +71,7 @@ if (matches(path,".*test")) {
 	mode = 2;
 } else {
 	basename = File.getNameWithoutExtension(path);
-	if (reload && !closeonexit) {
+	if ((reload && !closeonexit) || !reload) {
 		print("Loading image");
 		print(path);
 		open(path);
@@ -113,8 +113,8 @@ if (reload && mode==3) {
 	B = detect3DSpots(channelb, spot_sizeb, pfab, subpixel);
 }
 
-NA = A.length/3;
-NB = B.length/3;
+NA = A.length / 3;
+NB = B.length / 3;
 
 // find pairs of spots
 NAB = colocalization(A, B, dmax);
@@ -225,8 +225,9 @@ function coords2Table(tbl, coords, channel,size) {
 		Table.create(tbl);
 	}
 	selectWindow(tbl);
+	N = coords.length / 3;	
 	row = Table.size;
-	for (i=0;i<coords.length/3;i++) {
+	for (i = 0; i < N; i++) {
 		Table.set("Channel", row+i, channel);
 		Table.set("X [um]", row+i, coords[3*i]);
 		Table.set("Y [um]", row+i, coords[3*i+1]);
@@ -339,11 +340,11 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	run("32-bit");
 	id1 = getImageID;
 	//run("Square Root","stack");
-	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+3*sigma1/dz);
+	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+2.5*sigma1/dz);
 
 	run("Duplicate...", "title=id2 duplicate");
 	id2 = getImageID;
-	run("Gaussian Blur 3D...", "x="+sigma2/dx+" y="+sigma2/dy+" z="+3*sigma2/dz);
+	run("Gaussian Blur 3D...", "x="+sigma2/dx+" y="+sigma2/dy+" z="+2.5*sigma2/dz);
 	imageCalculator("Subtract 32-bit stack",id1,id2);
 	selectImage(id2);close();
 
@@ -351,11 +352,9 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	selectImage(id1);
 	run("Duplicate...", "title=id3 duplicate");
 	id3 = getImageID;
-	run("Maximum 3D...", "x=1 y=1 z=2");
+	run("Maximum 3D...", "x=1 y=1 z=1");
 	imageCalculator("Subtract 32-bit stack",id3,id1);
-	setThreshold(-0.001, 0.0001);
-	run("Make Binary", "method=Default background=Dark black");
-	run("Divide...", "value=255 stack");
+	run("Macro...", "code=v=(v==0) stack");
 
 	// threshold
 	selectImage(id1);
@@ -365,13 +364,9 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 		getStatistics(area, mean, min, max, stdDev, histogram);
 	}
 	lambda = -2*normppf(pow(10,-pfa));
-	threshold = mean + lambda * stdDev;
+	threshold = mean + lambda * stdDev;	
 	//print("specicity: "+pfa+" lambda: "+lambda+" threshold: "+threshold);
-	setThreshold(threshold, max);
-	run("Make Binary", "method=Default background=Dark black");
-	run("Minimum 3D...", "x=1 y=1 z=1");
-	run("Maximum 3D...", "x=1 y=1 z=1");
-	run("Divide...", "value=255 stack");
+	run("Macro...", "code=v=(v>="+threshold+") stack");
 
 	// combine local max and threshold
 	imageCalculator("Multiply stack",id1,id3);
@@ -405,6 +400,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 			}
 		}
 	}
+	coords = Array.trim(coords,3*j);
 	close();
 
 	// subpixel localization and conversion to physical units
@@ -551,15 +547,15 @@ function generateTestImage() {
 		z = b + round((d-2*b) * random);
 		a_on = false;
 		b_on = false;
-		if (random > 0.1) {
+		if (random > 0.2) {
 			Stack.setPosition(1, z, 1);
-			setPixel(x,y,5000);
+			setPixel(x,y,10000);
 			N1++;
 			a_on = true;
 		}
-		if (random > 0.1) {
+		if (random > 0.2) {
 			Stack.setPosition(2, z, 1);
-			setPixel(x,y,5000);
+			setPixel(x,y,10000);
 			N2++;
 			b_on = true;
 		}
@@ -567,7 +563,7 @@ function generateTestImage() {
 			N12++;
 		}
 	}
-	run("Maximum 3D...", "x=2 y=2 z=2");
+	run("Maximum 3D...", "x=1 y=1 z=1");
 	sigma = 0.2;
 	dxy = 0.11;
 	dz  = 0.33;
