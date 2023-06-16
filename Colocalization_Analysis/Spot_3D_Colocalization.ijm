@@ -60,7 +60,7 @@ if (matches(path,".*test")) {
 	generateTestImage();
 	channela = 1;
 	channelb = 2;
-	spot_size = 0.5;
+	spot_size = 0.2;
 	id = getImageID();
 	basename = "test image";
 	mode = 1;
@@ -74,7 +74,8 @@ if (matches(path,".*test")) {
 	if ((reload && !closeonexit) || !reload) {
 		print("Loading image");
 		print(path);
-		open(path);
+		//open(path);
+		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		id = getImageID();
 	}
 	mode = 3;
@@ -301,7 +302,7 @@ function coords2Overlay(coords,size,channel) {
 	 * channel : channel
 	 */
 	getVoxelSize(dx, dy, dz, unit);
-	R = size / dx;
+	R = 2 * size / dx;
 	for (i = 0; i < coords.length / 3; i++) {
 		x = coords[3*i] / dx;
 		y = coords[3*i+1] / dy;
@@ -331,8 +332,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	getVoxelSize(dx, dy, dz, unit);
 
 	sigma1 = size;
-	sigma2 = 2 * size;
-
+	sigma2 = 2 * size;	
 	id0 = getImageID;
 
 	// compute a difference of Gaussian
@@ -474,7 +474,7 @@ function blockCoordinateGaussianFit(p) {
 	x = p[0];
 	y = p[1];
 	z = p[2];
-	for (iter = 0; iter < 2; iter++) {
+	for (iter = 0; iter < 5; iter++) {
 		a = getLineIntensity(x,y,z,n,0,0,n);
 		Fit.doFit("Gaussian", Array.slice(a,0,n), Array.slice(a,3*n,4*n));
 		x = Fit.p(2);
