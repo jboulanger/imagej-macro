@@ -1,10 +1,10 @@
 // @File(label="Input",description="Use image to run on current image or test to run on a generated test image",value="image") path
 // @Integer(label="Channel A", value=1) channela
 // @Double(label="Spot size A [um]", value=0.2) spot_sizea
-// @Double(label="Specificity A [log10]", value=1, style=slider, min=0, max=6) pfaa
+// @Double(label="Specificity A [log10]", value=1, style=slider, min=0, max=10) pfaa
 // @Integer(label="Channel B", value=1) channelb
 // @Double(label="Spot size B [um]", value=0.2) spot_sizeb
-// @Double(label="Specificity B [log10]", value=1, style=slider, min=0, max=6) pfab
+// @Double(label="Specificity B [log10]", value=1, style=slider, min=0, max=10) pfab
 // @Double(label="Proximity threshold [um]",value=0.5) dmax
 // @Boolean(label="Subpixel localization", value=true) subpixel
 // @Boolean(label="Load coordinate from file", value=false) reload
@@ -328,18 +328,17 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	 *   an array (3,n) of coordinates (x,y,z) in physical units
 	 */
 
-	run("Select None");
+	run("Select None");	
 	getVoxelSize(dx, dy, dz, unit);
-
 	sigma1 = size;
-	sigma2 = 2 * size;	
+	sigma2 = 3 * size;	
 	id0 = getImageID;
 
 	// compute a difference of Gaussian
 	run("Duplicate...", "title=id1 duplicate channels="+channel);
 	run("32-bit");
 	id1 = getImageID;
-	//run("Square Root","stack");
+	run("Square Root","stack");
 	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+2.5*sigma1/dz);
 
 	run("Duplicate...", "title=id2 duplicate");
@@ -358,6 +357,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 
 	// threshold
 	selectImage(id1);
+	run("Select None");
 	if (nSlices>1) {
 		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
 	} else {
@@ -365,7 +365,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	}
 	lambda = -2*normppf(pow(10,-pfa));
 	threshold = mean + lambda * stdDev;	
-	//print("specicity: "+pfa+" lambda: "+lambda+" threshold: "+threshold);
+	print("mean:"+mean+", std:"+stdDev+", specicity: "+pfa+", lambda: "+lambda+", threshold: "+threshold);
 	run("Macro...", "code=v=(v>="+threshold+") stack");
 
 	// combine local max and threshold
