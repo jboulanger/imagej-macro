@@ -19,6 +19,7 @@
  */
 
 default_channels = newArray(1,2,3,4,5,6,7,8,9,10);
+
 channel_list = parseCSVInt(channel_csv, default_channels);
 
 default_lut = newArray("auto");

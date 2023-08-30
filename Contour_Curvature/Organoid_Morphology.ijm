@@ -1,5 +1,4 @@
 #@File(label="Input file") filename
-#@String(label="Delimiter",value="-") del
 #@Boolean(label="manual segmentation", value=false) manualsegmentation
 #@String(label="Overlay", choices={"Curvature","DNE"},style="listBox") overlaytype
 #@Boolean(label="Display info", value=true) iwantinfo
@@ -18,14 +17,12 @@
  * 
  * Set the parameters
  *  - set the filename
- *  - set the delimiter in the file name used to encode batch etc..
  *  - tick manual segmentation if you want to select manually the outline of the orgnanoid
  *  - set a threshold for segmentation (higher stricter)
  *  - set the minimum area to filter out smaller objects
  *  - tick the last option to save a jpg and close the image
  * 
- * Note:
- * - The input filename has the following format [Batch]-[Condition]-[Day]-[OrganoidIndex].extension
+ * Note: 
  * - If a roi file is present the roi will be use 
  * 
  * Output:
@@ -87,8 +84,7 @@ function initTable(tblname) {
 
 function processFile(idx, folder, fname, tblname) {
 	// open and process file
-	setBatchMode("hide");
-	cond = parseConditionName(fname);
+	setBatchMode("hide");	
 	print("Processing " + fname);
 	roifilename = replace(folder+File.separator+fname,".tif",".roi");
 	
@@ -141,10 +137,7 @@ function processFile(idx, folder, fname, tblname) {
 		}
 	}
 	if (roiManager("count")==0) {
-		Table.set("Batch", idx, parseBatchNumber(fname));
- 		Table.set("Condition", idx, cond);
- 		Table.set("Day", idx, parseDay(fname));
- 		Table.set("Organoid", idx, parseOrganoidIndex(fname));
+		Table.set("File", idx, fname);		
  		print("************"); 		
  		print("** FAILED **");
  		print("************");
@@ -193,10 +186,7 @@ function processFile(idx, folder, fname, tblname) {
 	//selectWindow(tblname);
 	selectImage(id);
 	roiManager("select", 0);
-	Table.set("Batch", idx, parseBatchNumber(fname));
- 	Table.set("Condition", idx, cond);
- 	Table.set("Day", idx, parseDay(fname));
- 	Table.set("Organoid", idx, parseOrganoidIndex(fname));
+	Table.set("File", idx, fname);
  	Table.set("Pixel size ["+unit+"]", idx, pixel_size);
  	
  	Table.set("Area [um^2]", idx, getValue("Area"));
@@ -769,27 +759,6 @@ function transparency() {
 	v = getValue("Mean");
 	close();
 	return v;
-}
-
-function parseBatchNumber(fname) {
-	dst = split(fname, del);
-	return parseInt(substring(dst[0], 1));
-}
-
-function parseConditionName(fname) {
-	dst = split(fname, del);
-	return dst[1];
-}
-
-function parseDay(fname) {
-	dst = split(fname, del);
-	return parseInt(substring(dst[2], 3));
-}
-
-function parseOrganoidIndex(fname) {
-	dst = split(fname, del);
-	dst = split(dst[3],'.');
-	return parseInt(dst[0]);
 }
 
 function removeScaleBar() {

@@ -257,7 +257,7 @@ function loadCoordsTable(path, channel) {
 	return Array.trim(coords,3*k);
 }
 
-function colocalization(A,B,dmax) {
+function colocalization(A, B, dmax) {
 	/*
 	 * Count number of proximity event
 	 *
