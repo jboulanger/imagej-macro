@@ -196,27 +196,27 @@ function processFile(idx, folder, fname, tblname) {
  	Table.set("Aspect Ratio", idx, getValue("AR"));
  	Table.set("Feret [um]", idx, getValue("Feret"));
  	Table.set("MinFeret [um]", idx, getValue("MinFeret"));
- 	Table.set("Minor [um]", idx, getValue("Minor"));
- 	Table.set("Major [um]", idx, getValue("Major"));
+ 	//Table.set("Minor [um]", idx, getValue("Minor"));
+ 	//Table.set("Major [um]", idx, getValue("Major"));
  	Table.set("Circularity", idx, 100*getValue("Circ."));
  	Table.set("Inflections Points", idx, K);
  	Table.set("Weighted curvature [um^-1]", idx, E);
  	Table.set("DNE", idx, DNE);
- 	Table.set("Fractal Dimension", idx, D);
- 	Table.set("Mean Intensity", idx, getValue("Mean"));
- 	Table.set("StdDev Intensity.", idx, getValue("StdDev"));
+ 	//Table.set("Fractal Dimension", idx, D);
+ 	//Table.set("Mean Intensity", idx, getValue("Mean"));
+ 	//Table.set("StdDev Intensity.", idx, getValue("StdDev"));
  	Table.set("Transparency", idx, T); 	
  	Array.getStatistics(dnd, min, max, mean, stdDev);
- 	Table.set("Min DND", idx, min);
- 	Table.set("Max DND", idx, max);
+ 	//Table.set("Min DND", idx, min);
+ 	//Table.set("Max DND", idx, max);
  	Array.getStatistics(curvature, Cmin, Cmax, Cmean, Cstd);
- 	Table.set("Min curvature [um^-1]", idx, Cmin);
- 	Table.set("Max curvature [um^-1]", idx, Cmax);
+ 	//Table.set("Min curvature [um^-1]", idx, Cmin);
+ 	//Table.set("Max curvature [um^-1]", idx, Cmax);
  	Table.set("Mean curvature [um^-1]", idx, Cmean);
  	Table.set("Std curvature [um^-1]", idx, Cstd); 	
  	Table.set("R0 x Std curvature", idx,R0*Cstd);
- 	Table.set("Intensity outside", idx, I0);
- 	 	 
+ 	//Table.set("Intensity outside", idx, I0);
+ 	 
  	//roiManager("select", 0);
  	run("Select None");
  	// Overlays
