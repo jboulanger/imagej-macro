@@ -29,7 +29,7 @@ print(area);
 
 row = nResults;
 setResult("tile x", row, x);
-setResult("tile y", row, x);
+setResult("tile y", row, y);
 setResult("tile width", row, width);
 setResult("tile height", row, height);
 setResult("area above threshold", row, area);
