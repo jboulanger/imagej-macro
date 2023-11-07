@@ -1,16 +1,21 @@
 // @File(label="Input",description="Use image to run on current image or test to run on a generated test image",value="image") path
-// @String(label="Channels", value="1,2,3") channels_str
-// @String(label="Spot Size", value="0.2,0.2,0.2") spot_size_str
-// @String(label="Specificity[log10]", value="1,1,1") specificity_str
-// @Double(label="Proximity threshold [um]",value=0.5) dmax
-// @Boolean(label="Subpixel localization", value=true) subpixel
-// @Boolean(label="Close on exit", value=false) closeonexit
+// @String(label="Channels", value="1,2,3",description="comma separated list of channels") channels_str
+// @String(label="Spot Size", value="0.2,0.2,0.2",description="comma separated list of size") spot_size_str
+// @String(label="Specificity[log10]", value="1,1,1",description="comma separated list of log pfa") specificity_str
+// @Double(label="Proximity threshold [um]",value=0.5,description="define the max distance between two nearby spots") dmax
+// @Boolean(label="Subpixel localization", value=true,description="enable subpixel localization") subpixel
+// @Boolean(label="Close on exit", value=false,description="close after processing") closeonexit
 // @Boolean(label="Save coordinates", value=false) savecoordinates
 
 /*
  * Multiple channel spot 3d detection and colocalization
  * 
- * The input can be an image stack or a csv file with (c,x,y,z) formats
+ * - The input can be an image stack or a csv file with (c,x,y,z) formats.
+ *   Type image for processing the current image or test to run a test as input.
+ * 
+ * - Channels are comma separated channel indices
+ * 
+ * A proximity event between for channels (ch1ch2ch3) counts as an event in (ch1), (ch2), (ch3), (ch1ch2), (ch2ch3) and (ch1ch3).
  * 
  */
 
