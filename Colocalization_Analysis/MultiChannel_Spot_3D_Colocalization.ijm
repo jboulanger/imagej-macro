@@ -1,12 +1,13 @@
 // @File(label="Input",description="Use image to run on current image or test to run on a generated test image",value="image") path
 // @String(label="Channels", value="1,2,3",description="comma separated list of channels") channels_str
-// @String(label="Spot Size", value="0.2,0.2,0.2",description="comma separated list of size") spot_size_str
-// @String(label="Specificity[log10]", value="1,1,1",description="comma separated list of log pfa") specificity_str
+// @String(label="Spot Size", value="0.5,0.5,0.5",description="comma separated list of size") spot_size_str
+// @String(label="Feature", choices={"DoG","LoG"}) feature
+// @String(label="Specificity[-log10]", value="3,3,3",description="comma separated list of log pfa") specificity_str
 // @Double(label="Proximity threshold [um]",value=0.5,description="define the max distance between two nearby spots") dmax
 // @Boolean(label="Subpixel localization", value=true,description="enable subpixel localization") subpixel
 // @Boolean(label="Close on exit", value=false,description="close after processing") closeonexit
 // @Boolean(label="Save coordinates", value=false) savecoordinates
-
+// @Boolean(label="Z project", value=false) dozproject
 /*
  * Multiple channel spot 3d detection and colocalization
  * 
@@ -24,9 +25,17 @@ function getMode() {
 		path = "Test Image.tif";
 		channels_str = "1,2,3,4";
 		spot_size_str = "0.2,0.2,0.2,0.2";
-		specificity_str = "1,1,1,1";
+		specificity_str = "1,1,1,1";		
 		return 1;
-	} else if (matches(path,".*image")) {
+	} else if (matches(path,".*image")) {	
+		if (nImages==0) {
+			Dialog.create("Please select a file");
+			Dialog.addFile("Input file", File.getDefaultDir);
+			Dialog.show();
+			path = Dialog.getString();
+			open(path);
+		}
+		path = getTitle();
 		return 2;
 	} else if (matches(path,".*csv")) {
 		return 3;
@@ -207,7 +216,217 @@ function getLineIntensity(x,y,z,u,v,w,n) {
 	return a;
 }
 
-function detect3DSpots(channels_list, size_list, pfa_list, channel_idx, subpixel) {
+function addBorder(id, border, value) {	
+	/* Add borders to the image
+	 * 
+	 */
+	Stack.getDimensions(width, height, channels, slices, frames);
+	run("Canvas Size...", "width="+(width+2*border)+" height="+(height+2*border)+" position=Center");
+	run("Macro...", "code=v=(v==0)*100+(v!=0)*v stack");
+	
+	for (k = 0; k < border; k++) {
+		Stack.setSlice(1);
+		run("Add Slice", "add=slice prepend");
+		Stack.setSlice(nSlices);
+		run("Add Slice", "add=slice");
+	}
+	
+	setColor(value);
+	for (k = 1; k <= border; k++) {	
+		for (c = 1; c <= channels; c++) {
+			Stack.setSlice(k);
+			Stack.setChannel(c);
+			fill();
+			Stack.setSlice(border+slices+k);
+			Stack.setChannel(c);
+			fill();
+		}
+	}
+	
+	id0 = getImageID();
+	
+	run("Duplicate...", "duplicate");		
+	run("Gaussian Blur 3D...", "x="+2*border+" y="+2*border+" z="+2*border);
+	id1 = getImageID();		
+	
+	// copy the inner part into the new image
+	for (c = 1; c <= channels; c++) {
+		for (k = 1; k <= slices; k++) {
+			
+			selectImage(id0);
+			Stack.setSlice(k+border);
+			Stack.setChannel(c);
+			makeRectangle(border, border, width, height);
+			run("Copy");
+			
+			selectImage(id1);
+			Stack.setSlice(k+border);
+			Stack.setChannel(c);
+			makeRectangle(border, border, width, height);
+			run("Paste");
+		}
+	}
+	selectImage(id0); close();
+	selectImage(id1);
+	run("Select None");
+	return id1;		
+}
+
+
+function cropBorder(id, border) {
+	Stack.getDimensions(width, height, channels, slices, frames);
+	makeRectangle(border, border, width-2*border, height-2*border);
+	run("Duplicate...", "duplicate slices="+(border+1)+"-"+(slices-border));
+	run("Select None");
+	return getImageID();
+}
+
+function blobDOG(channel, square_root, size) {
+	/* Compute a difference of Gaussian and returns the id
+	 * 
+	 */
+	 
+	getVoxelSize(dx, dy, dz, unit);
+	sigma1 = size;
+	sigma2 = 3 * size;
+	print("    scale: " + size + "um, [" + sigma1/dx + ","+ sigma1/dx+ ","+ 2.5*sigma1/dz+"] px");
+	run("Duplicate...", "title=id1 duplicate channels="+channel);	
+	run("32-bit");	
+	id1 = getImageID();
+	if (square_root) {
+		run("Square Root","stack");
+	}
+	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+2.5*sigma1/dz);
+
+	run("Duplicate...", "title=id2 duplicate");
+	id2 = getImageID;
+	run("Gaussian Blur 3D...", "x="+sigma2/dx+" y="+sigma2/dy+" z="+2.5*sigma2/dz);
+	imageCalculator("Subtract 32-bit stack",id1,id2);
+	selectImage(id2);close();
+	selectImage(id1);
+	run("Top Hat...", "radius=10 stack");
+	// naive border correction
+	Stack.setSlice(1); 
+	run("Multiply...", "value=0.5");	
+	Stack.setSlice(nSlices); 
+	run("Multiply...", "value=0.5");
+	return id1;
+}
+
+function blobLOG(channel, square_root, size) {
+	
+	
+	sigma1 = size;
+	sigma2 = 2 * size;
+	getVoxelSize(dx, dy, dz, unit);
+	print("    scale: " + size + "um, [" + sigma1/dx + ","+ sigma1/dx+ ","+ 2.5*sigma1/dz+"] px");
+	run("Duplicate...", "title=id1 duplicate channels="+channel);	
+	run("32-bit");	
+	id1 = getImageID();
+	if (square_root) {
+		run("Square Root","stack");
+	}
+	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+2.5*sigma1/dz);
+	run("FeatureJ Laplacian", "compute smoothing=0.75");
+	selectWindow("id1 Laplacian");
+	id2 = getImageID();
+	selectImage(id1); close();
+	selectImage(id2);
+	run("Multiply...", "value=-1 stack");
+	rename("id1");
+	// naive border correction
+	Stack.setSlice(1); 
+	run("Multiply...", "value=0.5");	
+	Stack.setSlice(nSlices); 
+	run("Multiply...", "value=0.5");	
+	return id2;
+}
+
+function localMaxima3D(id) {
+	/* Compute local maxima and return id */
+	selectImage(id);
+	run("Duplicate...", "title=id3 duplicate");
+	dst = getImageID;
+	run("Maximum 3D...", "x=1 y=1 z=1");
+	imageCalculator("Subtract 32-bit stack", dst, id);
+	run("Macro...", "code=v=(v==0) stack");
+	//Stack.setSlice(1); setColor(0); fill();
+	//Stack.setSlice(nSlices); setColor(0); fill();
+	return dst;
+}
+
+function thresholdAuto(id, pfa) {
+	/* threshold image id in place */
+	selectImage(id);
+	run("Select None");
+	if (nSlices > 1) {
+		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
+	} else {
+		getStatistics(area, mean, min, max, stdDev, histogram);
+	}
+	
+	lambda = -2 * normppf(pow(10, -pfa));
+	threshold = mean + lambda * stdDev;
+	
+	print("    moments: [" + mean + ", " + stdDev + "]");
+	print("    specificity: " + pfa + ", quantile: "+lambda+", threshold: "+threshold);
+	run("Macro...", "code=v=(v>="+threshold+") stack");
+}
+
+function localizeSpots(id) {
+	/* localize spots and return coordinates as a (n,4) array */
+	
+	setThreshold(0.5, 1);
+	run("Make Binary", "method=Default background=Dark black");
+	
+	if (nSlices>1) {
+		Stack.getStatistics(count, mean, min, max, stdDev);
+	} else {
+		getStatistics(count, mean, min, max, stdDev, histogram);
+	}
+	N =  mean * count / max;
+
+	Stack.getDimensions(width, height, channels, slices, frames);
+	coords = newArray(4*N);
+	j = 0;
+	for (slice = 1; slice <= slices; slice++) {
+		Stack.setSlice(slice);
+		setThreshold(128,256);
+		run("Create Selection");
+		if (Roi.size != 0) {
+			Roi.getContainedPoints(xpoints, ypoints);
+			for (i = 0; i < xpoints.length; i++) {
+				coords[4*j]   = channel_idx;
+				coords[4*j+1] = xpoints[i];
+				coords[4*j+2] = ypoints[i];
+				coords[4*j+3] = slice;
+				j = j + 1;
+			}
+		}
+	}
+	coords = Array.trim(coords,4*j);
+	return coords;
+}
+
+function refineLocalization(id, channel, coords) {
+	selectImage(id);
+	getVoxelSize(dx, dy, dz, unit);
+	Stack.setChannel(channel);
+	delta = newArray(dx,dy,dz);
+	N = coords.length / 4;
+	for (j = 0; j < N; j++) {
+		if (subpixel) {
+			p = blockCoordinateGaussianFit(Array.slice(coords,4*j+1,4*j+4));
+		} else {
+			p = Array.slice(coords,4*j+1,4*j+4);
+		}
+		for (k = 0; k < 3; k++) {
+			coords[4 * j + k + 1] = p[k] * delta[k];
+		}
+	}
+}
+
+function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx, subpixel) {
 	/*
 	 * detect spots and return coordinates in physical units as an array
 	 *
@@ -230,97 +449,33 @@ function detect3DSpots(channels_list, size_list, pfa_list, channel_idx, subpixel
 
 	run("Select None");
 
-	getVoxelSize(dx, dy, dz, unit);
-	sigma1 = size;
-	sigma2 = 3 * size;
 	id0 = getImageID;
 
 	// compute a difference of Gaussian
-	run("Duplicate...", "title=id1 duplicate channels="+channel);
-	run("32-bit");
-	id1 = getImageID;
-	run("Square Root","stack");
-	run("Gaussian Blur 3D...", "x="+sigma1/dx+" y="+sigma1/dy+" z="+2.5*sigma1/dz);
-
-	run("Duplicate...", "title=id2 duplicate");
-	id2 = getImageID;
-	run("Gaussian Blur 3D...", "x="+sigma2/dx+" y="+sigma2/dy+" z="+2.5*sigma2/dz);
-	imageCalculator("Subtract 32-bit stack",id1,id2);
-	selectImage(id2);close();
-
+	if (feature == "DOG") {
+		id1 = blobDOG(channel, true, size);
+	} else {
+		id1 = blobLOG(channel, true, size);
+	}
+		
 	// local maxima
-	selectImage(id1);
-	run("Duplicate...", "title=id3 duplicate");
-	id3 = getImageID;
-	run("Maximum 3D...", "x=1 y=1 z=1");
-	imageCalculator("Subtract 32-bit stack",id3,id1);
-	run("Macro...", "code=v=(v==0) stack");
+	id3 = localMaxima3D(id1);
 
 	// threshold
-	selectImage(id1);
-	run("Select None");
-	if (nSlices>1) {
-		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	} else {
-		getStatistics(area, mean, min, max, stdDev, histogram);
-	}
-	lambda = -2*normppf(pow(10,-pfa));
-	threshold = mean + lambda * stdDev;
-	//print("mean:"+mean+", std:"+stdDev+", specicity: "+pfa+", lambda: "+lambda+", threshold: "+threshold);
-	run("Macro...", "code=v=(v>="+threshold+") stack");
+	thresholdAuto(id1, pfa);
 
 	// combine local max and threshold
-	imageCalculator("Multiply stack",id1,id3);
-	selectImage(id3);close();
-	setThreshold(0.5, 1);
-	run("Make Binary", "method=Default background=Dark black");
+	imageCalculator("Multiply stack", id1, id3);
+	selectImage(id3); close();
+		
+	coords = localizeSpots(id1);
 
-	// count
-	if (nSlices>1) {
-		Stack.getStatistics(count, mean, min, max, stdDev);
-	} else {
-		getStatistics(count, mean, min, max, stdDev, histogram);
-	}
-	N =  mean * count / max;
+	
+	refineLocalization(id1, channel, coords);
 
-	// localize
-	Stack.getDimensions(width, height, channels, slices, frames);
-	coords = newArray(4*N);
-	j = 0;
-	for (slice = 1; slice <= slices; slice++) {
-		Stack.setSlice(slice);
-		setThreshold(128,256);
-		run("Create Selection");
-		if (Roi.size != 0) {
-			Roi.getContainedPoints(xpoints, ypoints);
-			for (i = 0; i < xpoints.length; i++) {
-				coords[4*j]   = channel_idx;
-				coords[4*j+1] = xpoints[i];
-				coords[4*j+2] = ypoints[i];
-				coords[4*j+3] = slice;
-				j = j + 1;
-			}
-		}
-	}
-	coords = Array.trim(coords,4*j);
-	close();
-
-	// subpixel localization and conversion to physical units
-	selectImage(id0);
-	Stack.setChannel(channel);
-	delta = newArray(dx,dy,dz);
-	N = coords.length / 4;
-	for (j = 0; j < N; j++) {
-		if (subpixel) {
-			p = blockCoordinateGaussianFit(Array.slice(coords,4*j+1,4*j+4));
-		} else {
-			p = Array.slice(coords,4*j+1,4*j+4);
-		}
-		for (k = 0; k < 3; k++) {
-			coords[4 * j + k + 1] = p[k] * delta[k];
-		}
-	}
-
+	selectImage(id1); close();
+	
+	print("   number of spots: " + coords.length/4);
 	return coords;
 }
 
@@ -373,12 +528,12 @@ function loadCoordsTable(path, channels) {
 	return coords;
 }
 
-function detectSpotsInAllChannels(id, channels, specificity, spot_size) {	
+function detectSpotsInAllChannels(id, channels, feature, specificity, spot_size) {	
 	setBatchMode("hide");
 	print("Detect 3D spots in image " + getTitle);
 	coords = newArray(0);
 	for (idx = 0; idx < channels.length; idx++) {
-		current_coords = detect3DSpots(channels, spot_size, specificity, idx, subpixel);
+		current_coords = detect3DSpots(channels, feature, spot_size, specificity, idx, subpixel);
 		coords = Array.concat(coords, current_coords);
 	}	
 	setBatchMode("exit and display");
@@ -386,20 +541,22 @@ function detectSpotsInAllChannels(id, channels, specificity, spot_size) {
 }
 
 
-function loadData(mode, channels, specificity, spot_size) {
+function loadData(mode, channels, feature, specificity, spot_size) {
+	/* Load points data and set the basename
+	 */
 	if (mode==1) {
 		print("Test image");
 		generateTestImage();
 		id = getImageID();
 		basename = "test image";
-		coords = detectSpotsInAllChannels(id, channels, specificity, spot_size);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size);
 		//if (isOpen(basename+"-points.csv")) {selectWindow(basename+"-points.csv");run("Close");}
 		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
 	} else if (mode==2) {
 		print("[Using active image "+getTitle()+"]");
 		basename = File.getNameWithoutExtension(getTitle);
 		id = getImageID();
-		coords = detectSpotsInAllChannels(id, channels, specificity, spot_size);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size);
 		//coords2Table(basename+"points.csv", coords, channels, spot_size);
 	} else if (mode==3) {
 		basename = File.getNameWithoutExtension(path);
@@ -412,7 +569,7 @@ function loadData(mode, channels, specificity, spot_size) {
 		print(path);
 		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		id = getImageID();
-		coords = detectSpotsInAllChannels(id, channels, specificity, spot_size);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size);
 		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
 	}
 	return coords;
@@ -454,7 +611,17 @@ function computeCodes(coords, channels, dmax) {
 }
 
 function powerSet(n) {
-	/* powerset of n sets as a array (n,2^n) */
+	/* Powerset of n sets as a array (n,2^n) 
+	 *  
+	 * List all combination of the first n integers
+	 * obtained by using their binary representation.
+	 * https://en.wikipedia.org/wiki/Power_set
+	 * 
+	 * parameters
+	 *   n (integer): number of items
+	 * returns
+	 *   set (n,2^n) array with all combinations
+	 */
 	m = pow(2, n);
 	set = newArray(n * m);
 	for (i = 0; i < m; i++) {
@@ -495,8 +662,7 @@ function countsCodeBySet(codes, sets, channels) {
 			}			
 			if (test) {
 				counts[i + N * k] = acc1 / acc2;
-			}
-			
+			}			
 		}
 	}
 	return counts;
@@ -575,8 +741,13 @@ function showCodes(codes, channels) {
 }
 
 function showCounts(counts, sets, channels) {
-	/*
-	 * counts (array) : (N,2^channels)  array of counts for each sets and spots
+	/* Show counts for each set
+	 *  
+	 * counts (array)  
+	 *    (N,2^channels)  array of counts for each sets and spots
+	 * sets (array):
+	 *   (channels, 2^channels)
+	 * channels (array)
 	 */
 	tbl = "Counts.csv";
 	Table.create(tbl);
@@ -604,7 +775,7 @@ function appendRecord(agg, sets, channels, specificity, spot_size) {
 	name = File.getNameWithoutExtension(path);
 	n = channels.length;
 	m = pow(2,n);
-	Table.set("Name", row, name);	
+	Table.set("Name", row, path);	
 	rank = rankSetByCardinality(sets, channels);	
 	for (k = 1; k < m; k++) {
 		ko = rank[k];
@@ -627,9 +798,10 @@ function setColorFromLut(channel) {
 
 function addOverlay(mode, coords, channels, spot_size) {
 	if (mode!=3 && !closeonexit) {
+		Stack.getDimensions(dummy, dummy, dummy, slices, dummy);
 		setBatchMode("hide");
-		getVoxelSize(dx, dy, dz, unit);
-		print(dz);
+		Overlay.remove();
+		getVoxelSize(dx, dy, dz, unit);		
 		N = coords.length / 4;
 		for (i = 0; i < N; i++) {
 			c = coords[4*i];
@@ -638,9 +810,15 @@ function addOverlay(mode, coords, channels, spot_size) {
 			z = round(coords[4*i+3] / dz);			
 			R = 2 * spot_size[c] / dx;
 			setColorFromLut(channels[c]);
-			Stack.setSlice(z);
+			if (slices > 1) {
+				Stack.setSlice(z);
+			}
 			Overlay.drawEllipse(x-R, y-R, 2*R+1, 2*R+1);			
-			Overlay.setPosition(0, z, 0);			
+			if (slices > 1) {
+				Overlay.setPosition(channels[c], z, 0);			
+			} else {
+				Overlay.setPosition(channels[c], 1, 0);
+			}
 			Overlay.add;
 		}
 		Overlay.show();		
@@ -661,15 +839,24 @@ function exportCoordsToCSV(mode, coords, channels, spot_size) {
 	}
 }
 
+function zProjectAndShowROIs(mode, coords, channels, spot_size) {
+	/* zproject and show roi for a quick evaluation	*/
+	if (dozproject && mode!=3 && !closeonexit) {		
+		run("Select None");						
+		run("Z Project...", "projection=[Max Intensity]");
+		addOverlay(mode, coords, channels, spot_size);
+	}
+	
+}
+
 function main() {
 
 	start_time = getTime();
-
 	mode = getMode();
 	channels = parseCSVInt(channels_str);
 	specificity = parseCSVFloat(specificity_str);
 	spot_size = parseCSVFloat(spot_size_str);
-	coords = loadData(mode, channels, specificity, spot_size);
+	coords = loadData(mode, channels, feature, specificity, spot_size);
 	codes = computeCodes(coords, channels, dmax);
 	sets = powerSet(channels.length);
 	counts = countsCodeBySet(codes, sets, channels);
@@ -678,10 +865,10 @@ function main() {
 	appendRecord(agg, sets, channels, specificity, spot_size);
 	addOverlay(mode, coords, channels, spot_size);
 	exportCoordsToCSV(mode, coords, channels, spot_size);
-	
+	zProjectAndShowROIs(mode, coords, channels, spot_size);
 	end_time = getTime();
-	run("Collect Garbage");
-	run("Collect Garbage");
+	run("Collect Garbage");call("java.lang.System.gc");
+	run("Collect Garbage");call("java.lang.System.gc");
 	print("Finished in " + (end_time-start_time)/1000 + " seconds.");
 	if (closeonexit) {run("Close All");}
 }
