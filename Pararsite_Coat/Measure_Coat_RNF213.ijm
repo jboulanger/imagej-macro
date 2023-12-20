@@ -85,8 +85,7 @@ function segmentAndTrackParasite(img) {
 	 */
 	Stack.getDimensions(width, height, channels, slices, frames);
 	Stack.getUnits(X, Y, Z, Time, Value);
-	getVoxelSize(dx, dy, dz, unit);
-	print(width);
+	getVoxelSize(dx, dy, dz, unit);	
 	run("Duplicate...", "title=binary duplicate channels=1");
 	for (iter = 0; iter < 5; iter++) {
 		run("Median 3D...", "x=2 y=2 z=1");
