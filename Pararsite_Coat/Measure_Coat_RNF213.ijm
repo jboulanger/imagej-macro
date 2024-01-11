@@ -246,6 +246,8 @@ function graphAndFit(name, correct_bleaching) {
 	Plot.setColor("#5555AA");	
 	Plot.add("circle",x,y);
 	Plot.setColor("#AA55AA");
+	
+	// initial guesses
 	Array.getStatistics(y, ymin, ymax, mean, stdDev);
 	a = (ymin + ymax) / 2;
 	b = (ymax - ymin) / 2;
@@ -262,7 +264,7 @@ function graphAndFit(name, correct_bleaching) {
 	b = Fit.p(1);
 	c = Fit.p(2);
 	d = Fit.p(3);
-	R2 = Fit.rSquared;
+	R2 = Fit.rSquared;	
 	
 	fun = newArray(x.length);
 	for (i = 0; i < fun.length; i++){
@@ -279,9 +281,12 @@ function graphAndFit(name, correct_bleaching) {
 	Table.set("Image", nrow, name);
 	Table.set("Time mid point [min]", nrow, c);
 	Table.set("Time constant [min]", nrow, d);
-	Table.set("95% recovery", nrow, 2.326 * d);
+	Table.set("5%-95% recovery time [min]", nrow, 2.326 * d);
 	Table.set("Intensity amplitude [au]", nrow, b);
 	Table.set("Intensity offset [au]", nrow, a);
+	if (correct_bleaching) {
+		Table.set("Photo-bleaching [min]", nrow, e);	
+	}
 	Table.set("R squared", nrow, R2);
 	Table.update;
 }
