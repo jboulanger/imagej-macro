@@ -1,6 +1,6 @@
 # Parasite coat dynamic quantification
 
-This macro quantifies the time evolution of the surface coating by a fluorescently tagged protein in 3D.
+This macro quantifies the time evolution of the surface coating by a fluorescent tagged protein in 3D.
 The first channel, labels the overall structure (inside and outside) of the parasite and the second channel 
 on the 3D time lapse experiment labels the signal of interest on the surface.
 
@@ -19,3 +19,5 @@ The measurement are then exported to a table:
 |Time mid point [min]|Time constant [min]|Intensity amplitude [au]|Intensity offset [au]|
 |--------------------|-------------------|------------------------|---------------------|
 |99.316548440|1.275861198|16.113436068|124.280343286|
+
+

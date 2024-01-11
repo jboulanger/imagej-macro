@@ -1,6 +1,7 @@
 //@Boolean(label="Use ring") use_ring
 //@Float(label="start time [min]",value=23) start_time
 //@Float(label="first frame [frame]",value=23) first_frame
+//@Boolean(label="Correct bleaching in fit") correct_bleaching
 
 /*
 	Measure RNF213 coat fluorescence overtime
@@ -12,19 +13,18 @@
 	view at the start of the sequence.
 	
 	Installation:
-	
-	Open the macro using the script editor in Fiji.
-	
-	
+	- Install morpholibJ
+	- Open the macro using the script editor in Fiji.
+		
 	Usage:
 	
+	- Open the image to process
 	- Duplicate the region of interest with only 1 parasite
 	- Run the macro
 	- Save the table	
 	
 	
-	
-	Jerome Boulanger for Ana Crespillo Casado
+	Jerome Boulanger for Ana Crespillo Casado 2023
 */
 
 function findNearestLabel(labels_frame, position) {
@@ -78,11 +78,15 @@ function segmentAndTrackParasite(img) {
 	 * Segment and track the parasite
 	 * 
 	 * Input:
-	 * 	img : input image id
+	 * 	img : input image id with channel 1 to be segmented
 	 * 	
 	 * Output:
 	 * 	labels: labels window id
 	 */
+	if (isOpen("labels")) {
+		selectWindow("labels");
+		close();
+	}
 	Stack.getDimensions(width, height, channels, slices, frames);
 	Stack.getUnits(X, Y, Z, Time, Value);
 	getVoxelSize(dx, dy, dz, unit);	
@@ -91,8 +95,7 @@ function segmentAndTrackParasite(img) {
 		run("Median 3D...", "x=2 y=2 z=1");
 	}
 	Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	setThreshold(mean+stdDev, max+1);
-	//setAutoThreshold("Default dark");	
+	setThreshold(mean+stdDev, max+1);	
 	run("Convert to Mask", "background=Dark black");	
 	id0 = getImageID();
 	
@@ -105,7 +108,7 @@ function segmentAndTrackParasite(img) {
 		run("Duplicate...", "title=test duplicate frames="+frame);
 		id1 = getImageID();
 		
-		run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+		run("Connected Components Labeling", "connectivity=6 type=[8 bits]");
 		selectWindow("test-lbl");
 		id2 = getImageID();	
 		
@@ -128,23 +131,65 @@ function segmentAndTrackParasite(img) {
 	return labels;
 }
 
+
+function runHS(flt, args) {
+	// Run a command on each frame of an hyperstack to correct a bug in ImageJ
+	Stack.getDimensions(width, height, channels, slices, frames);
+	src = getImageID();
+	title = getTitle();
+	for (n = 1; n <= frames; n++) {		
+		selectImage(src);
+		run("Duplicate...", "title=frame duplicate frames="+n);
+		frame = getImageID();
+		run(flt, args);
+		if (n == 1) {
+			rename("dst");
+			dst = frame;			
+		} else {
+			run("Concatenate...", "title=dst open image1=dst image2=frame image3=[-- None --]");		
+			dst = getImageID();			
+		}
+	}
+	selectImage(src); close();
+	selectImage(dst); rename(title);
+	return dst;
+}
+
 function computeRing(labels) {
-	// compute ring masks if required
-	selectImage(labels);
+	/* compute ring masks if required
+	 *  
+	 */
+	 
+	selectImage(labels);	
+	
 	if (use_ring) {
+		
 		id1 = getImageID();
-		run("Minimum 3D...", "x=1 y=1 z=1");
-		run("Duplicate...", "duplicate");
+		
+		run("Duplicate...", "title=min duplicate");
+		//run("8-bit");
+		runHS("Minimum 3D...", "x=1 y=1 z=1");
 		id2 = getImageID();
-		run("Maximum 3D...", "x=4 y=4 z=2");
-		imageCalculator("Subtract stack", id2, id1);
+		
+		run("Duplicate...", "title=max duplicate");
+		//run("8-bit");
+		runHS("Maximum 3D...", "x=4 y=4 z=2");
+		id3 = getImageID();
+		
+		imageCalculator("Subtract stack", id3, id2);
 		selectImage(id1); close();
-		rename("labels");
-		return id2;	
+		selectImage(id2); close();
+		selectImage(id3); rename("labels");
+		setThreshold(0.5, 1.5);
+		run("Convert to Mask", "background=Dark black");
+		
 	} else {
-		run("Maximum 3D...", "x=2 y=2 z=1");
-		return getImageID();
+		
+		runHS("Maximum 3D...", "x=2 y=2 z=1");	
+		
 	}	
+	
+	return getImageID();
 }
 
 function recordIntensity(labels, img) {
@@ -184,50 +229,72 @@ function recordIntensity(labels, img) {
 	Table.update;
 }
 
-function graphAndFit() {
+function graphAndFit(name, correct_bleaching) {
+	/*
+	 * Create a graph and fit a model to the intensity recovery
+	 *  - name: image name
+	 *  - correct_bleaching: boolean which models
+	 * Results
+	 *  - plot
+	 *  - table with parameters	 
+	 */
 	selectWindow("Result");
 	x = Table.getColumn("Time [min]");
 	y = Table.getColumn("Mean intensity");
-	// crop
-	pos = Array.rankPositions(y);
-	Array.print(pos);
-	kmax = pos[pos.length-1];	
+		
 	Plot.create("Intensity", "Time [min]", "Mean Intensity");
 	Plot.setColor("#5555AA");	
 	Plot.add("circle",x,y);
 	Plot.setColor("#AA55AA");
-	Fit.doFit("Error Function", Array.trim(x,kmax), Array.trim(y,kmax));
+	Array.getStatistics(y, ymin, ymax, mean, stdDev);
+	a = (ymin + ymax) / 2;
+	b = (ymax - ymin) / 2;
+	c = (x[x.length-1] + x[0]) / 2;
+	d = (x[x.length-1] - x[0]) / 10;
+	e =  x[x.length-1] - x[0];
+	
+	if (correct_bleaching) {
+		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-x/e)", x, y,newArray(a,b,c,d,e));		
+	} else {		
+		Fit.doFit("Error Function", x, y, newArray(a,b,c,d));
+	}
 	a = Fit.p(0);
 	b = Fit.p(1);
 	c = Fit.p(2);
 	d = Fit.p(3);
-	f = newArray(x.length);
-	for (i=0;i<f.length;i++){
-		f[i] = Fit.f(x[i]);
+	R2 = Fit.rSquared;
+	
+	fun = newArray(x.length);
+	for (i = 0; i < fun.length; i++){
+		fun[i] = Fit.f(x[i]);
 	}
-	Plot.add("line", x, f);
-	print("Time constant " + d + " min");
+	Plot.add("line", x, fun);
+	print("95% Recovery :" + 2.326 *d + " min");
+	
 	if (!isOpen("Summary")) {
 		Table.create("Summary");
 	} 
 	selectWindow("Summary");
 	nrow = Table.size;
+	Table.set("Image", nrow, name);
 	Table.set("Time mid point [min]", nrow, c);
 	Table.set("Time constant [min]", nrow, d);
+	Table.set("95% recovery", nrow, 2.326 * d);
 	Table.set("Intensity amplitude [au]", nrow, b);
 	Table.set("Intensity offset [au]", nrow, a);
-	
+	Table.set("R squared", nrow, R2);
 	Table.update;
 }
 
-
 function main() {
+	/* Entry point */
 	setBatchMode("hide");
 	img = getImageID();
+	name = getTitle();
 	labels = segmentAndTrackParasite(img);
 	ring = computeRing(labels);
 	recordIntensity(ring, img);
-	graphAndFit();
+	graphAndFit(name,correct_bleaching);
 	setBatchMode("exit and display");
 	print("Done");
 }
