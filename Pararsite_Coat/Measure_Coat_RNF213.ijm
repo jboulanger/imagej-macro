@@ -1,4 +1,5 @@
-//@Boolean(label="Use ring") use_ring
+//@File(label="Input",description="Use image to run on current image",value="image") path
+//@Boolean(label="Use shell") use_shell
 //@Float(label="start time [min]",value=23) start_time
 //@Float(label="first frame [frame]",value=23) first_frame
 //@Boolean(label="Correct bleaching in fit") correct_bleaching
@@ -155,14 +156,14 @@ function runHS(flt, args) {
 	return dst;
 }
 
-function computeRing(labels) {
+function computeShell(labels) {
 	/* compute ring masks if required
 	 *  
 	 */
 	 
 	selectImage(labels);	
 	
-	if (use_ring) {
+	if (use_shell) {
 		
 		id1 = getImageID();
 		
@@ -229,7 +230,7 @@ function recordIntensity(labels, img) {
 	Table.update;
 }
 
-function graphAndFit(name, correct_bleaching) {
+function graphAndFit(name) {
 	/*
 	 * Create a graph and fit a model to the intensity recovery
 	 *  - name: image name
@@ -291,16 +292,38 @@ function graphAndFit(name, correct_bleaching) {
 	Table.update;
 }
 
+function getDataSet(path) {
+	if (matches(path, ".*image")) {	
+		return getImageID();
+	} else {
+		run("Close All");
+		open(path);		
+		return getImageID();
+	}
+}
+
+function saveAndFinih(path) {	
+	if (!matches(path, ".*image")) {
+		folder = File.getDirectory(path);
+		fname = File.getNameWithoutExtension(path);		
+		selectWindow("Result");
+		Table.save(folder + File.separator + fname + ".csv");
+		selectWindow("labels");
+		saveAs("TIFF", folder + File.separator + fname + "-mask.tif");
+	}
+}
+
 function main() {
 	/* Entry point */
-	setBatchMode("hide");
-	img = getImageID();
+	setBatchMode("hide");	
+	img = getDataSet(path);
 	name = getTitle();
 	labels = segmentAndTrackParasite(img);
-	ring = computeRing(labels);
-	recordIntensity(ring, img);
-	graphAndFit(name,correct_bleaching);
+	shell = computeShell(labels);
+	recordIntensity(shell, img);
+	graphAndFit(name);
 	setBatchMode("exit and display");
+	saveAndFinih(path);
 	print("Done");
 }
 
