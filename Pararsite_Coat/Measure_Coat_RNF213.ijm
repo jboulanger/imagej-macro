@@ -29,8 +29,7 @@
 */
 
 function findNearestLabel(labels_frame, position) {
-	/*
-	 * Find nearest label and update position
+	/* Find nearest label and update position
 	 * Return id of the image with the correct label
 	 */
 	selectImage(labels_frame);
@@ -41,8 +40,7 @@ function findNearestLabel(labels_frame, position) {
 	xk = Table.getColumn("Centroid.X");
 	yk = Table.getColumn("Centroid.Y");
 	zk = Table.getColumn("Centroid.Z");
-	labs = Table.getColumn("Label");
-	print("Found " + labs.length +  " labels on frame " + frame);
+	labs = Table.getColumn("Label");	
 	
 	dmin = 1e6;
 	kstar = 0;
@@ -75,8 +73,7 @@ function findNearestLabel(labels_frame, position) {
 
 
 function segmentAndTrackParasite(img) {
-	/*
-	 * Segment and track the parasite
+	/* Segment and track the parasite
 	 * 
 	 * Input:
 	 * 	img : input image id with channel 1 to be segmented
@@ -103,8 +100,7 @@ function segmentAndTrackParasite(img) {
 	position = newArray(width / 2 * dx, height / 2 * dy, slices / 2 * dz);
 	
 	for (frame = 1; frame <= frames; frame++) {
-		
-		print("Processing frame " + frame);
+				
 		selectImage(id0);
 		run("Duplicate...", "title=test duplicate frames="+frame);
 		id1 = getImageID();
@@ -134,7 +130,7 @@ function segmentAndTrackParasite(img) {
 
 
 function runHS(flt, args) {
-	// Run a command on each frame of an hyperstack to correct a bug in ImageJ
+	/* Run a command on each frame of an hyperstack to correct a bug in ImageJ */
 	Stack.getDimensions(width, height, channels, slices, frames);
 	src = getImageID();
 	title = getTitle();
@@ -157,24 +153,26 @@ function runHS(flt, args) {
 }
 
 function computeShell(labels) {
-	/* compute ring masks if required
-	 *  
-	 */
-	 
-	selectImage(labels);	
+	/* compute shell masks if required by use_shell input */
+	t = 0.6; // thickness
+	s = 0.25; // shift
 	
+	a = 0.5 * (t - s);
+	b = 0.5 * (t + s);	
+		 
+	selectImage(labels);	
+	getVoxelSize(width, height, depth, unit);
+
 	if (use_shell) {
 		
 		id1 = getImageID();
 		
-		run("Duplicate...", "title=min duplicate");
-		//run("8-bit");
-		runHS("Minimum 3D...", "x=1 y=1 z=1");
+		run("Duplicate...", "title=min duplicate");		
+		runHS("Minimum 3D...", "x="+Math.ceil(a/width)+" y="+Math.ceil(a/height)+" z="+Math.ceil(a/depth));
 		id2 = getImageID();
 		
-		run("Duplicate...", "title=max duplicate");
-		//run("8-bit");
-		runHS("Maximum 3D...", "x=4 y=4 z=2");
+		run("Duplicate...", "title=max duplicate");		
+		runHS("Maximum 3D...", "x="+Math.ceil(b/width)+" y="+Math.ceil(b/height)+" z="+Math.ceil(b/depth));
 		id3 = getImageID();
 		
 		imageCalculator("Subtract stack", id3, id2);
@@ -189,12 +187,12 @@ function computeShell(labels) {
 		runHS("Maximum 3D...", "x=2 y=2 z=1");	
 		
 	}	
-	
+	setMinAndMax(0, 1);
 	return getImageID();
 }
 
 function recordIntensity(labels, img) {
-	// measurements in 3d of image in labels for each frame
+	/* Measurements in 3d of image in labels for each frame */
 	
 	selectImage(img);
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -231,8 +229,7 @@ function recordIntensity(labels, img) {
 }
 
 function graphAndFit(name) {
-	/*
-	 * Create a graph and fit a model to the intensity recovery
+	/* Create a graph and fit a model to the intensity recovery
 	 *  - name: image name
 	 *  - correct_bleaching: boolean which models
 	 * Results
@@ -241,7 +238,7 @@ function graphAndFit(name) {
 	 */
 	selectWindow("Result");
 	x = Table.getColumn("Time [min]");
-	y = Table.getColumn("Mean intensity");
+	y = Table.getColumn("Mean intensity");	
 		
 	Plot.create("Intensity", "Time [min]", "Mean Intensity");
 	Plot.setColor("#5555AA");	
@@ -254,17 +251,23 @@ function graphAndFit(name) {
 	b = (ymax - ymin) / 2;
 	c = (x[x.length-1] + x[0]) / 2;
 	d = (x[x.length-1] - x[0]) / 10;
-	e =  x[x.length-1] - x[0];
-	
-	if (correct_bleaching) {
-		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-x/e)", x, y,newArray(a,b,c,d,e));		
-	} else {		
-		Fit.doFit("Error Function", x, y, newArray(a,b,c,d));
-	}
+	e =  (x[x.length-1] - x[0]) * 10;
+	print("  initial values : [",a,b,c,d,e,"]");	
+	Fit.doFit("Error Function", x, y, newArray(a,b,c,d));
 	a = Fit.p(0);
 	b = Fit.p(1);
 	c = Fit.p(2);
 	d = Fit.p(3);
+	print("  erf fit: [",a,b,c,d,"]");
+	if (correct_bleaching) {	
+		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-x/e)", x, y, newArray(a,b,c,d,e));			
+		a = Fit.p(0);
+		b = Fit.p(1);
+		c = Fit.p(2);
+		d = Fit.p(3);
+		e = Fit.p(4);
+		print("  erf x bleach fit: [",a,b,c,d,e,"]");
+	}
 	R2 = Fit.rSquared;	
 	
 	fun = newArray(x.length);
@@ -272,7 +275,7 @@ function graphAndFit(name) {
 		fun[i] = Fit.f(x[i]);
 	}
 	Plot.add("line", x, fun);
-	print("95% Recovery :" + 2.326 *d + " min");
+	print("  > 95% Recovery :" + 2.326 *d + " min <");
 	
 	if (!isOpen("Summary")) {
 		Table.create("Summary");
@@ -292,22 +295,26 @@ function graphAndFit(name) {
 	Table.update;
 }
 
-function getDataSet(path) {
+function getDataSet() {
+	/* Get the dataset given the path parameter */
 	if (matches(path, ".*image")) {	
+		print("Processing " + getTitle());
 		return getImageID();
 	} else {
-		run("Close All");
+		print("Processing " + path);
+		run("Close All");		
 		open(path);		
 		return getImageID();
 	}
 }
 
 function saveAndFinih(path) {	
+	/* Save results if an image was opened */
 	if (!matches(path, ".*image")) {
 		folder = File.getDirectory(path);
 		fname = File.getNameWithoutExtension(path);		
 		selectWindow("Result");
-		Table.save(folder + File.separator + fname + ".csv");
+		Table.save(folder + File.separator + fname + "-profile.csv");
 		selectWindow("labels");
 		saveAs("TIFF", folder + File.separator + fname + "-mask.tif");
 	}
@@ -316,11 +323,15 @@ function saveAndFinih(path) {
 function main() {
 	/* Entry point */
 	setBatchMode("hide");	
-	img = getDataSet(path);
+	img = getDataSet();
 	name = getTitle();
+	print("- Tracking");
 	labels = segmentAndTrackParasite(img);
+	print("- Shell computation");
 	shell = computeShell(labels);
+	print("- Intenisty measurement");
 	recordIntensity(shell, img);
+	print("- Model fitting");
 	graphAndFit(name);
 	setBatchMode("exit and display");
 	saveAndFinih(path);
