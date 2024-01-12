@@ -33,7 +33,26 @@ The time for the intensity to go from 5% to 95% can be computed as $2.326 \times
 ![image](https://github.com/jboulanger/imagej-macro/assets/3415561/888a3341-c66e-4305-98d0-3121577c7576)
 
 
+## Visual explanation
+The 5% to 95% recovery time can be visualized using the following erf function plot:
+```
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.special import erf,erfinv
+alpha=0.05
+x = np.linspace(-5,5,1000)
+y = np.array([0.5+0.5*erf(k) for k in x])
+seg = (y > (alpha)) & (y < (1-alpha) )
+plt.plot(x,y)
+plt.plot(x[seg], 0*np.ones(x[seg].shape),)
+plt.plot(x,(alpha)*np.ones(x.shape))
+plt.plot(x,1-alpha*np.ones(x.shape))
+plt.plot(erfinv(2*alpha-1),alpha,'r.')
+plt.plot(erfinv(1-2*alpha),1-alpha,'r.')
+plt.xlabel('Time')
+plt.ylabel('Error function erf')
+plt.title('Recovery')
+```
 
-
-
-
+![image](https://github.com/jboulanger/imagej-macro/assets/3415561/69625ac3-7a16-47a4-b4d4-4d56052a1258)
