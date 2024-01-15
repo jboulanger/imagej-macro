@@ -236,6 +236,7 @@ function graphAndFit(name, start_time, first_frame) {
 	 *  - plot
 	 *  - table with parameters	 
 	 */
+	 correct_bleaching=true;
 	selectWindow("Result");
 	x = Table.getColumn("Time [min]");
 	y = Table.getColumn("Mean intensity");	
@@ -251,24 +252,30 @@ function graphAndFit(name, start_time, first_frame) {
 	b = (ymax - ymin) / 2;
 	c = (x[x.length-1] + x[0]) / 2;
 	d = (x[x.length-1] - x[0]) / 10;
-	e =  10/(x[x.length-1] - x[0]);
+	e =  1/(x[x.length-1] - x[0]);
 	print("  initial values : [",a,b,c,d,e,"]");	
 	Fit.doFit("Error Function", x, y, newArray(a,b,c,d));
 	a = Fit.p(0);
 	b = Fit.p(1);
 	c = Fit.p(2);
 	d = Fit.p(3);
-	print("  erf fit: [",a,b,c,d,"]");
-	if (correct_bleaching) {	
-		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-e*x)", x, y, newArray(a,b,c,d,e));			
-		a = Fit.p(0);
-		b = Fit.p(1);
-		c = Fit.p(2);
-		d = Fit.p(3);
-		e = Fit.p(4);
-		print("  erf x bleach fit: [",a,b,c,d,e,"]");
-	}
 	R2 = Fit.rSquared;	
+	print("  erf fit: [",a,b,c,d,"] R2:", R2);
+	if (correct_bleaching) {	
+		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-e*x)", x, y, newArray(a,b,c,d,e));
+		if (Fit.rSquared > R2) {
+			a = Fit.p(0);
+			b = Fit.p(1);
+			c = Fit.p(2);
+			d = Fit.p(3);
+			e = Fit.p(4);
+			R2 = Fit.rSquared;	
+			print("  erf x bleach fit: [",a,b,c,d,e,"] R2:", R2);
+		} else {
+			e = 0;
+			print("  erf x bleach fit failed R2:", Fit.rSquared);
+		}
+	}	
 	
 	fun = newArray(x.length);
 	for (i = 0; i < fun.length; i++){
