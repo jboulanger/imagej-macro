@@ -1,7 +1,7 @@
-//@File(label="Input",description="Use image to run on current image",value="image") path
-//@Boolean(label="Use shell") use_shell
+//@File(label="Input",description="Input dataset, use image to run on current image",value="image") path
 //@Float(label="start time [min]",value=23) start_time
 //@Float(label="first frame [frame]",value=23) first_frame
+//@Boolean(label="Use shell") use_shell
 //@Boolean(label="Correct bleaching in fit") correct_bleaching
 
 /*
@@ -191,7 +191,7 @@ function computeShell(labels) {
 	return getImageID();
 }
 
-function recordIntensity(labels, img) {
+function recordIntensity(labels, img, start_time, first_frame) {
 	/* Measurements in 3d of image in labels for each frame */
 	
 	selectImage(img);
@@ -220,7 +220,7 @@ function recordIntensity(labels, img) {
 		selectWindow("mask"); close();
 		
 		selectWindow("Result");
-		Table.set("Frame", frame-1, frame);
+		Table.set("Frame", frame-1, first_frame + frame);
 		Table.set("Time [min]", frame-1, start_time + (frame + first_frame) * Stack.getFrameInterval()/60);
 		Table.set("Mean intensity", frame-1, value);
 		
@@ -228,7 +228,7 @@ function recordIntensity(labels, img) {
 	Table.update;
 }
 
-function graphAndFit(name) {
+function graphAndFit(name, start_time, first_frame) {
 	/* Create a graph and fit a model to the intensity recovery
 	 *  - name: image name
 	 *  - correct_bleaching: boolean which models
@@ -251,7 +251,7 @@ function graphAndFit(name) {
 	b = (ymax - ymin) / 2;
 	c = (x[x.length-1] + x[0]) / 2;
 	d = (x[x.length-1] - x[0]) / 10;
-	e =  (x[x.length-1] - x[0]) * 10;
+	e =  10/(x[x.length-1] - x[0]);
 	print("  initial values : [",a,b,c,d,e,"]");	
 	Fit.doFit("Error Function", x, y, newArray(a,b,c,d));
 	a = Fit.p(0);
@@ -260,7 +260,7 @@ function graphAndFit(name) {
 	d = Fit.p(3);
 	print("  erf fit: [",a,b,c,d,"]");
 	if (correct_bleaching) {	
-		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-x/e)", x, y, newArray(a,b,c,d,e));			
+		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-e*x)", x, y, newArray(a,b,c,d,e));			
 		a = Fit.p(0);
 		b = Fit.p(1);
 		c = Fit.p(2);
@@ -277,38 +277,42 @@ function graphAndFit(name) {
 	Plot.add("line", x, fun);
 	print("  > 95% Recovery :" + 2.326 *d + " min <");
 	
+	Table.setColumn("Model", fun);
+	
 	if (!isOpen("Summary")) {
 		Table.create("Summary");
 	} 
 	selectWindow("Summary");
 	nrow = Table.size;
 	Table.set("Image", nrow, name);
+	Table.set("Start time [min]", nrow,  start_time);
+	Table.set("First frame", nrow,  first_frame);
 	Table.set("Time mid point [min]", nrow, c);
 	Table.set("Time constant [min]", nrow, d);
 	Table.set("5%-95% recovery time [min]", nrow, 2.326 * d);
 	Table.set("Intensity amplitude [au]", nrow, b);
 	Table.set("Intensity offset [au]", nrow, a);
 	if (correct_bleaching) {
-		Table.set("Photo-bleaching [min]", nrow, e);	
+		Table.set("Photo-bleaching [min]", nrow, 1/e);	
 	}
 	Table.set("R squared", nrow, R2);
 	Table.update;
 }
 
-function getDataSet() {
+function getDataSet(path) {
 	/* Get the dataset given the path parameter */
 	if (matches(path, ".*image")) {	
 		print("Processing " + getTitle());
 		return getImageID();
 	} else {
 		print("Processing " + path);
-		run("Close All");		
+		run("Close All");
 		open(path);		
 		return getImageID();
 	}
 }
 
-function saveAndFinih(path) {	
+function saveAndFinish(path) {	
 	/* Save results if an image was opened */
 	if (!matches(path, ".*image")) {
 		folder = File.getDirectory(path);
@@ -320,21 +324,42 @@ function saveAndFinih(path) {
 	}
 }
 
-function main() {
-	/* Entry point */
-	setBatchMode("hide");	
-	img = getDataSet();
+function processImage(path, start_time, first_frame) {
+	/* Process the current image or a file */
+	img = getDataSet(path);
 	name = getTitle();
 	print("- Tracking");
 	labels = segmentAndTrackParasite(img);
 	print("- Shell computation");
 	shell = computeShell(labels);
-	print("- Intenisty measurement");
-	recordIntensity(shell, img);
+	print("- Intensity measurement");
+	recordIntensity(shell, img, start_time, first_frame);
 	print("- Model fitting");
-	graphAndFit(name);
+	graphAndFit(name, start_time, first_frame);
+	saveAndFinish(path);
+}
+
+function main() {
+	/* Entry point */
+	setBatchMode("hide");	
+	if (matches(path, ".*csv")) {
+		print("Loading file list from", path);
+		folder = File.getDirectory(path);
+		Table.open(path);		
+		filelist = Table.title();
+		nrows = Table.size;
+		for (row = 0; row < nrows; row++) {
+			selectWindow(filelist);
+			fname = Table.getString("Filename", row);
+			start_time = Table.get("Start time [min]", row);
+			first_frame = Table.get("First frame", row);
+			print(fname, start_time, first_frame);
+			processImage(folder + File.separator + fname, start_time, first_frame);
+		}
+	} else {
+		processImage(path, start_time, first_frame);
+	}
 	setBatchMode("exit and display");
-	saveAndFinih(path);
 	print("Done");
 }
 
