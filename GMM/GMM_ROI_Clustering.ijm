@@ -12,21 +12,28 @@
  * To do:
  * - multi-start initialization
  * 
+ * 
+ * Jerome Boulanger 2019-2024
  */
+
 features = split(featstr, ",");
 classes = split(classstr, ",");
 
 if (isOpen("ROI Manager")) {
+	start_time = getTime();
+	run("Select None");
 	id = getImageID();
 	if(isOpen("plot")) { selectWindow("plot"); run("Close"); }
 	if(isOpen("gmm")) { selectWindow("gmm"); run("Close"); }	
 	npts = roiManager("count");
-	K = gmmClusterROI(features, classes);
-	selectImage(id);
-	X = getMeasureValueForAllROI(features);
+	K = gmmClusterROI(id, features, classes);	
+
+	name = getTitle();
+	X = getMeasureValueForAllROI(id, features);
 	stats = gmmComputeStatsByClass(X,K,npts,features.length,classes.length);
-	gmmPrintStats(stats, features, classes);
-	gmmSaveStatsToTable("Analysis.csv", "test.tif","test",stats,features,classes);
+	gmmPrintStats(stats, features, classes);	
+	gmmSaveStatsToTable("Analysis.csv",name,name,stats,features,classes);
+	print("Elapsed time ", getTime() - start_time, "ms");
 } else {
 	print("Demo mode");
 	run("Close All");
@@ -42,7 +49,18 @@ if (isOpen("ROI Manager")) {
 	plotData(X,C,npts,features,nclass);
 	computeClassifierPerf(C0,C);
 	res = gmmComputeStatsByClass(X,C,npts,nfeat,nclass);
-	//gmmPrintStats(stats, features, newArray("A","B"));
+	gmmPrintStats(stats, features, newArray("A","B"));
+}
+
+function colorROIByClass(img, K) {
+	selectImage(img);
+	npts = K.length;
+	colors = newArray("red","blue","green","magenta");
+	for (i = 0; i < npts; i++) {
+		roiManager("select", i);		
+		Roi.setStrokeColor(colors[K[i]%4]);		
+	}
+	run("Select None");
 }
 
 function createClasses(n,nclass) {
@@ -104,7 +122,7 @@ function computeClassifierPerf(C0,C) {
 
 // start of clustering code
 
-function gmmClusterROI(features, classes) {
+function gmmClusterROI(img, features, classes) {
 	/* Cluster ROI uing features
 	 * Parameter
 	 * features : array of features (string)
@@ -113,18 +131,19 @@ function gmmClusterROI(features, classes) {
 	 * Example
 	 * gmmClusterROI(newArray("AR","Area"));
 	 */
-	X = getMeasureValueForAllROI(features);
+	X = getMeasureValueForAllROI(img, features);
 	for (i=0;i<X.length;i++) {X[i] = log(X[i]);}
 	npts = roiManager("count");
 	nfeat = features.length;
 	nclass = classes.length;
 	//K = newArray(npts);
-	K = gmmFit(X, npts, nfeat, nclass, 1.0, true, 30);
-	colors = newArray("red","blue","green","yellow");
-	for (j = 0; j < npts; j++) {
-		roiManager("select", j);
-		Roi.setStrokeColor(colors[K[j]]);
-	}
+	K = gmmFit(X, npts, nfeat, nclass, 1.0, false, 30);	
+	colorROIByClass(img, K);
+	//colors = newArray("red","blue","green","yellow");
+	//for (j = 0; j < npts; j++) {
+	//	roiManager("select", j);
+	//	Roi.setStrokeColor(colors[K[j]]);
+	//}
 	plotData(X,K,npts,features,nclass);
 	res = gmmComputeStatsByClass(X,K,npts,nfeat,nclass);
 	return K;
@@ -161,12 +180,14 @@ function plotData(X,C,npts,features,nclass) {
 	Plot.show();
 }
 
-function getMeasureValueForAllROI(features) {
+function getMeasureValueForAllROI(img, features) {
 	// return an array (n,m) containing the values of measurements defined by the
-	// array measures for each ROI of the ROI manager.
+	// array measures for each ROI of the ROI manager.	
 	npts = roiManager("count");
 	nfeat = features.length;
 	x = newArray(npts * nfeat);
+	print(npts, x.length);
+	selectImage(img);
 	for (j = 0; j < npts; j++) {
 		roiManager("select", j);
 		 List.setMeasurements();
@@ -203,14 +224,32 @@ function gmmFit(X, npts, nfeat, nclass, bsize, display, niter) {
 
 function gmmInitialize(X,C,S,P,npts,nfeat,nclass) {
 	// initialize 2 classes with large/small values for each features
+	print(nfeat,X.length,npts);
 	for (j = 0; j < npts; j++) {
-		if (X[1+nfeat*j] > 2  - 1 * X[nfeat*j]) {
-			P[nclass*j] = 0;
-			P[1+nclass*j] = 1;
+		if (nfeat == 1) { // 1 feature 2 classes
+			Array.getStatistics(X, min, max, mean, stdDev);
+			if (X[nfeat*j] > mean+3*stdDev) {
+				P[nclass*j] = 0;
+				P[1+nclass*j] = 1;
+			} else {
+				P[nclass*j] = 1;
+				P[1+nclass*j] = 0;	
+			}
+		} if (nfeat ==2) { // 2 feature 2 classes
+			if (X[1+nfeat*j] > 2  - 1 * X[nfeat*j]) {
+				P[nclass*j] = 0;
+				P[1+nclass*j] = 1;
+			} else {
+				P[nclass*j] = 1;
+				P[1+nclass*j] = 0;		
+			}
 		} else {
-			P[nclass*j] = 1;
-			P[1+nclass*j] = 0;		
-		}
+			klass = minOf(round(random * nclass), nclass-1);
+			for (k=0;k<nclass;k++) {
+				if (k==klass) P[k+nclass*j] = 1;	
+				else P[k+nclass*j] = 0;	
+			}
+		}		
 	}
 	gmmUpdateCentersMean(X,C,S,P,npts,nfeat,nclass,1);
 }
@@ -250,6 +289,7 @@ function gmmUpdateProbabilities(X,C,S,P,npts,nfeat,nclass,bsize) {
 	for (i = 0; i < P.length; i++) {
 		P[i] = 0;
 	}
+	
 	// compute for each class and point the squared distance of the point Xj to the center Ck
 	for (k = 0; k < nclass; k++) {
 		for (j = 0; j < npts; j++)  if (random < bsize){
