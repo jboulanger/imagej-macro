@@ -1,4 +1,4 @@
-//@File(label="Input",description="Input dataset, use image to run on current image",value="image") path
+//@File(label="Input",description="Input dataset tif or csv file, use 'image' to run on current image",value="image") path
 //@Float(label="start time [min]",value=23) start_time
 //@Float(label="first frame [frame]",value=23) first_frame
 //@Boolean(label="Use shell") use_shell
@@ -19,10 +19,25 @@
 		
 	Usage:
 	
+	Processing an opened image:
 	- Open the image to process
-	- Duplicate the region of interest with only 1 parasite
+	- Duplicate the region of interest with only 1 parasite	
+	- Run the macro with image as input
+	- Save the table
+	
+	Processing a file
+	- Open the image, crop the region to analyse and save them in a tif file
+	- Keep track of the starting frame of the crop
 	- Run the macro
-	- Save the table	
+	
+	Processing several files
+	- Open image, crop and export as tif, note in a csv file the first frame
+	- The csv file should have the columns
+	 Filename, Start time [min], First frame
+	- Run the macro
+	- Use the csv file as input
+	
+	
 	
 	
 	Jerome Boulanger for Ana Crespillo Casado 2023
@@ -186,8 +201,8 @@ function segmentAndTrackParasite(img) {
 
 function computeShell(labels) {
 	/* compute shell masks if required by use_shell input */
-	t = 1.5; // thickness
-	s = 0; // shift
+	t = 1.; // thickness
+	s = 0.3; // shift
 	
 	a = 0.5 * (t - s);
 	b = 0.5 * (t + s);	
@@ -263,7 +278,7 @@ function recordIntensity(labels, img, start_time, first_frame) {
 	img_mask = getImageID();
 	run("Median 3D...", "x=3 y=3 z=1");
 	Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	setThreshold(mean+2*stdDev, max+1);	
+	setThreshold(mean+stdDev, max+1);	
 	run("Convert to Mask", "background=Dark black");	
 	imageCalculator("Multiply stack", img_mask, labels);
 			
@@ -434,7 +449,7 @@ function graphAndFit(img, name, start_time, first_frame) {
 	print("  erf fit: [",a,b,c,d,"] R2:", R2);
 	// Error function + bleaching model
 	if (correct_bleaching) {	
-		Fit.doFit("y=(a+b*Math.erf((x-c)/d))*exp(-e*x)", x, y, newArray(a,b,c,d,e));
+		Fit.doFit("y=a+b*Math.erf((x-c)/d)*exp(-e*x)", x, y, newArray(a,b,c,d,e));
 		if (Fit.rSquared > R2) {
 			a = Fit.p(0);
 			b = Fit.p(1);
@@ -509,14 +524,22 @@ function getDataSet(path) {
 	}
 }
 
-function saveAndFinish(path) {	
+function saveAndFinish(img, shell, path) {	
 	/* Save results if an image was opened */
 	if (!matches(path, ".*image")) {
 		folder = File.getDirectory(path);
 		fname = File.getNameWithoutExtension(path);		
 		selectWindow("Intensities");
-		Table.save(folder + File.separator + fname + "-profile.csv");
-		selectWindow("labels");
+		Table.save(folder + File.separator + fname + "-profile.csv");		
+		selectImage(shell);
+		run("16-bit");
+		setMinAndMax(0, 1000);
+		c3 = getTitle();
+		selectImage(img);
+		c = getTitle();
+		run("16-bit");
+		run("Split Channels");
+		run("Merge Channels...","c1=[C1-"+c+"] c2=[C2-"+c+"] c3=["+c3+"]");
 		saveAs("TIFF", folder + File.separator + fname + "-mask.tif");
 	}
 }
@@ -533,7 +556,7 @@ function processImage(path, start_time, first_frame) {
 	recordIntensity(shell, img, start_time, first_frame);
 	print("- Model fitting");
 	graphAndFit(img, name, start_time, first_frame);
-	saveAndFinish(path);
+	saveAndFinish(img, shell, path);
 }
 
 function main() {
