@@ -331,7 +331,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	run("Select None");	
 	getVoxelSize(dx, dy, dz, unit);
 	sigma1 = size;
-	sigma2 = 3 * size;	
+	sigma2 = 2 * size;	
 	id0 = getImageID;
 
 	// compute a difference of Gaussian
@@ -363,7 +363,7 @@ function detect3DSpots(channel, size, pfa, subpixel) {
 	} else {
 		getStatistics(area, mean, min, max, stdDev, histogram);
 	}
-	lambda = -2*normppf(pow(10,-pfa));
+	lambda = -2 * normppf(pow(10,-pfa));
 	threshold = mean + lambda * stdDev;	
 	print("mean:"+mean+", std:"+stdDev+", specicity: "+pfa+", lambda: "+lambda+", threshold: "+threshold);
 	run("Macro...", "code=v=(v>="+threshold+") stack");
