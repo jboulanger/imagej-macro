@@ -249,6 +249,9 @@ function normppf(p) {
 	 * Returns
 	 * the value x such that cdf(x) < p
 	 */
+	if (Math.log10(p) < -10) {
+		return -sqrt(-4.2*Math.log10(p)+4.5);
+	}
 	x = 0;
 	for (i = 0; i < 50; i++) {
 		delta = (normcdf(x) - p) / exp(-0.5*x*x) * sqrt(2 * PI);
@@ -407,7 +410,7 @@ function cropBorder(id, border) {
 
 function blobDOG(channel, square_root, size) {
 	/* Compute a difference of Gaussian and returns the id */
-
+	
 	getVoxelSize(dx, dy, dz, unit);
 	sigma1 = size;
 	sigma2 = 3 * size;
@@ -945,10 +948,10 @@ function appendRecord(agg, sets, channels, feature, specificity, spot_size) {
 		ko = rank[k];
 		set = Array.slice(sets, n * ko, n * (ko + 1));
 		col = getSetName(set, channels);
-		Table.set(col, row, agg[ko]);
+		Table.set(col, row, round(agg[ko]));
 		total = total + agg[ko];
 	}
-	Table.set("Number", row, total);
+	Table.set("Number", row, round(total));
 	Table.set("Feature", row, feature);
 	for (i = 0; i < channels.length; i++) {
 		Table.set("size Ch" + channels[i], row, spot_size[i]);
@@ -1016,7 +1019,6 @@ function zProjectAndShowROIs(mode, coords, channels, spot_size) {
 		}
 		addOverlay(mode, coords, channels, spot_size);
 	}
-
 }
 
 function main() {
