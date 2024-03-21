@@ -754,7 +754,8 @@ function loadData(mode, channels, feature, specificity, spot_size, mask_channel)
 		print(path);
 		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		id = getImageID();
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size);
+		mask_id = getMask(mask_channel);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id);
 		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
 	}
 	return coords;
