@@ -446,6 +446,9 @@ function normppf(p) {
 	 * Returns
 	 * the value x such that cdf(x) < p
 	 */
+	if (Math.log10(p) < -10) {
+		return -sqrt(-4.2*Math.log10(p)+4.5);
+	}
 	x = 0;
 	for (i = 0; i < 50; i++) {
 		delta = (normcdf(x) - p) / exp(-0.5*x*x) * sqrt(2 * PI);

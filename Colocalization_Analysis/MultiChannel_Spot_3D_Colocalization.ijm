@@ -1,4 +1,4 @@
-// @File(label="Input",description="Use image to run on current image or test to run on a generated test image",value="image") path
+// @File(label="Input",description="Use 'image' to run on current image or 'test' to run on a generated test image",value="image") path
 // @String(label="Channels", value="1,2,3",description="comma separated list of channels indices") channels_str
 // @String(label="Spot Size", value="0.5,0.5,0.5",description="comma separated list of spot size in microns") spot_size_str
 // @String(label="Feature", choices={"DoG","LoG","Top hat"}) feature
@@ -9,6 +9,7 @@
 // @Boolean(label="Close on exit", value=false,description="close after processing") closeonexit
 // @Boolean(label="Save coordinates", value=false) savecoordinates
 // @Boolean(label="Z project", value=false) dozproject
+
 /*
  * Multiple channel spot 3d detection and colocalization
  *
@@ -21,9 +22,27 @@
  *
  * A channel with intensity > 0 can be used as a mask.
  *
- * The reported counts are the number of localization corresponding to each combination of channels.
+ * The reported counts are the number of localization corresponding to each 
+ * combination of channels.
+ * 
+ * This number is indirectly infered from the detected spots in each channel by 
+ * looking at their proximity and analysing the sets.
+ * 
+ * - Detect all spots in each channels
+ * - For each spot analyse the neighbours and assign a code per detection
+ *   eg 1,0,1: a detection in ch1 has a neighbour in ch3
+ * - Aggregate the codes by counting the number of spots within each code
+ * - Analyze the aggregate result to get the counts per site
+ *   This substract the code (1,1,1) from (1,0,1) and then take into account the
+ *   cardinality of a code (eg  #(1,1,1) = 3) to correct the counts.
  *
- * To get colocalization ratios, one need to compute for example Ch1Ch2 / (Ch1Ch2 + Ch1)
+ * To get colocalization ratios, one need to compute for example 
+ * Ch1Ch2 / (Ch1Ch2 + Ch1) for the colocalization #1:2 / #1
+ * 
+ * - This macro was writen to analyze images of virus in cell for Anna 
+ *   Albecka-Moreau
+ * - The support for a mask channel was added for Heidy Chen for colocalization 
+ *   of pre and post synaptic markers in neuronal cell culture.
  *
  */
 
@@ -250,7 +269,7 @@ function normppf(p) {
 	 * the value x such that cdf(x) < p
 	 */
 	if (Math.log10(p) < -10) {
-		return -sqrt(-4.2*Math.log10(p)+4.5);
+		return -sqrt(-4.2 * Math.log10(p) + 4.5);
 	}
 	x = 0;
 	for (i = 0; i < 50; i++) {
@@ -949,9 +968,9 @@ function appendRecord(agg, sets, channels, feature, specificity, spot_size) {
 		set = Array.slice(sets, n * ko, n * (ko + 1));
 		col = getSetName(set, channels);
 		Table.set(col, row, round(agg[ko]));
-		total = total + agg[ko];
+		total = total + round(agg[ko]);
 	}
-	Table.set("Number", row, round(total));
+	Table.set("Number", row, total);
 	Table.set("Feature", row, feature);
 	for (i = 0; i < channels.length; i++) {
 		Table.set("size Ch" + channels[i], row, spot_size[i]);
