@@ -142,6 +142,7 @@ function saveAndFinalize(id, path) {
 		print("Saving result in file:");
 		print(path);
 		saveAs("TIFF", path);
+		close();
 	}
 }
 
