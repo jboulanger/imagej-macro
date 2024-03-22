@@ -7,6 +7,11 @@
  * This macro can be used to create a mask for the macro 
  * MultiChannel_Spot_3D_Colocalization.ijm
  * 
+ * Requirements
+ * ------------
+ * Depends on FeatureJ, morpholibJ
+ * 
+ * Activate the IJPB-plugins and ImageScience update sites
  * 
  * Jerome Boulanger for Heidy Chen 2024
  */
@@ -19,7 +24,8 @@ function getDataSet() {
 	} else {
 		print("Processing " + path);
 		run("Close All");		
-		open(path);		
+		//open(path);		
+		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		return getImageID();
 	}
 }
@@ -119,18 +125,20 @@ function createMask(id) {
 	}	
 	
 	run("Merge Channels...", merge + " create");
+	dest = getImageID();	
 	selectImage(id0); close();
 	selectImage(id1); close();
 	selectImage(id2); close();
+	return dest;
 }
 
-function saveAndFinalize(path) {	
+function saveAndFinalize(id, path) {	
 	/* Save results if an image was opened */
 	if (!matches(path, ".*image")) {
 		folder = File.getDirectory(path);
 		fname = File.getNameWithoutExtension(path);		
-		selectWindow("labels");
-		path = fofder + File.separator + fname + "-with-mask.tif"
+		selectImage(id);
+		path = folder + File.separator + fname + "-with-mask.tif";
 		print("Saving result in file:");
 		print(path);
 		saveAs("TIFF", path);
@@ -141,8 +149,8 @@ function main() {
 	setBatchMode("hide");
 	start_time = getTime();
 	id = getDataSet();
-	createMask(id);
-	saveAndFinalize(path);
+	mask = createMask(id);
+	saveAndFinalize(mask, path);
 	setBatchMode("exit and display");
 	end_time = getTime();
 	print("Elapsed time " + (end_time - start_time)/1000 + " seconds.");

@@ -208,8 +208,6 @@ function printAgg(agg, sets, channels) {
 	}
 }
 
-
-
 function testIntersection(code1, code2) {
 	/* Test if two code intersect */
 	if (code2.length==0) return false;
@@ -458,6 +456,21 @@ function blobDOG(channel, square_root, size) {
 	return id1;
 }
 
+function correctBorder() {
+	// naive border correction
+	Stack.getDimensions(width, height, channels, slices, frames);
+	Stack.setSlice(1);
+	run("Multiply...", "value=0.5");
+	Stack.setSlice(slices);
+	run("Multiply...", "value=0.5");
+	makeRectangle(2, 2, width-2, height-2);
+	run("Make Inverse");
+	for (k = 1; k < slices; k++) {
+		setSlice(k);
+		run("Multiply...", "value=0.5");
+	}
+}
+
 function blobLOG(channel, square_root, size) {
 	/* Compute a laplacian of Gaussian and returns the id */
 	sigma1 = size;
@@ -477,12 +490,7 @@ function blobLOG(channel, square_root, size) {
 	selectImage(id2);
 	run("Multiply...", "value=-1 stack");
 	rename("id1");
-
-	// naive border correction
-	Stack.setSlice(1);
-	run("Multiply...", "value=0.5");
-	Stack.setSlice(nSlices);
-	run("Multiply...", "value=0.5");
+	correctBorder();
 	return id2;
 }
 
@@ -505,6 +513,7 @@ function blobTH(channel, square_root, size) {
 	imageCalculator("Subtract stack", id1, id2);
 	selectImage(id2); close();
 	selectImage(id1);
+	correctBorder();
 	return id1;
 }
 
@@ -520,25 +529,107 @@ function localMaxima3D(id, size) {
 	run("Maximum 3D...", "x="+sx+" y="+sy+" z="+sz);
 	imageCalculator("Subtract 32-bit stack", dst, id);
 	run("Macro...", "code=v=(v==0) stack");
-	//Stack.setSlice(1); setColor(0); fill();
-	//Stack.setSlice(nSlices); setColor(0); fill();
+	correctBorder();
+	
 	return dst;
+}
+
+function computeHistogramBins(nbins) {
+	/*Compute the histogram bins*/
+	if (nSlices > 1) {
+		Stack.getStatistics(count, mean, min, max, stdDev);
+	} else {
+		getStatistics(count, mean, min, max, stdDev);
+	}
+	values = newArray(nbins);
+	for (i = 0; i < nbins; i++) {
+		values[i] = min + (max - min) * i / (nbins);
+	}
+	return values;
+}
+
+function stackHistogram(bins) {
+	/* compute the historgram of the all stack */
+	if (nSlices > 1) {
+		Stack.getDimensions(width, height, channels, slices, frames);
+	} else {
+		slices = 1;
+	}
+	hist = newArray(bins.length);
+	for (n = 1; n <= slices; n++) {
+		Stack.setSlice(n);
+		getHistogram(values, counts, bins.length, bins[0], bins[bins.length-1]);
+		for (i = 0; i < nbins; i++) {
+			hist[i] = hist[i] + counts[i];
+		}
+	}	
+	return hist;
+}
+
+function medianFromHistogram(values, counts) {
+	n = 0;
+	for (i = 0; i < counts.length; i++) {
+		n += counts[i];
+	}	
+	count = 0;
+	for (i = 0; i < counts.length; i++) {
+		count += counts[i];
+		if (count > n/2) {
+			med = values[i];
+			break;
+		}
+	}
+	return med;
+}
+
+function madFromHistogram(values, counts, med) {
+	values1 = newArray(values.length);
+	mini = 0;
+	maxi = maxOf(abs(values[0] - med), abs(values[1] - med));
+	n = 0;
+	for (i = 0; i < values1.length; i++) {
+		values1[i] = mini + (maxi-mini) / nbins * i;
+		n += counts[i];
+	}
+	//  recompute histogram
+	counts1 = newArray(nbins);
+	for (i = 0; i < values.length; i++) {
+		val = abs(values[i] - med);
+		idx = (val - mini) / (maxi-mini) * nbins;
+		counts1[idx] = counts1[idx] + counts[i];
+	}
+	//
+	count = 0;
+	for (i = 0; i < counts1.length; i++) {
+		count += counts1[i];
+		if (count >= n / 2) {
+			mad = values1[i];
+			break;
+		}
+	}
+	return 1.4838*mad;
+}
+
+function getStackRobustStatictics() {
+	/* compute robust statistics median and mad from stack histograms */
+	nbins = 10000;	
+	values = computeHistogramBins(nbins);
+	counts = stackHistogram(values);	
+	med = medianFromHistogram(values, counts);
+	mad = madFromHistogram(values, counts, med);		
+	return newArray(med, mad);
 }
 
 function thresholdAuto(id, pfa) {
 	/* threshold image id in place */
 	selectImage(id);
 	run("Select None");
-	if (nSlices > 1) {
-		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	} else {
-		getStatistics(area, mean, min, max, stdDev, histogram);
-	}
+	stats = getStackRobustStatictics();
 
 	lambda = -2 * normppf(pow(10, -pfa));
-	threshold = mean + lambda * stdDev;
+	threshold = stats[0] + lambda * stats[1];
 
-	print("    moments: [" + mean + ", " + stdDev + "]");
+	print("    moments: [" + stats[0] + ", " + stats[1] + "]");
 	print("    specificity: " + pfa + ", quantile: "+lambda+", threshold: "+threshold);
 	run("Macro...", "code=v=(v>="+threshold+") stack");
 }
