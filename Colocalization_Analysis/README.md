@@ -114,6 +114,13 @@ If there is no opened image, a test image is created:
 
 Note that the macro does not amke any intensity measurement.
 
+## Multi channel spot colocalization 3D
+ This macro detect spots in 3D with subpixel localization in each channel and look at the distance between the localization of these spots.
+ For each localized spot, a list of spot in other channels within a distance is analysed and encoded as a signature to this spot.
+ A breakdown by type of signature is computed. 
+ Then as, for example, a colocalization event will appear twice when two spots are nearby, this breakdown is corrected enabling to retreive the number of colocalization by events without predefining reference sites.
+
+ This macro can be batched and can handle masks using a specified channel that act as binary mask.
 
 ## Reference
  Manders E et al. (1993). "Measurement of colocalization of objects in dual-color confocal images." J Microsc Oxford 169:375–382.
