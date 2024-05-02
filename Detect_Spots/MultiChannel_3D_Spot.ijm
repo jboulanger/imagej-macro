@@ -1,20 +1,19 @@
 // @File(label="Input",description="Use 'image' to run on current image or 'test' to run on a generated test image",value="image") path
+// @Integer(label="Reference channel", value=1,description="reference channel") ref_channel
 // @String(label="Channels", value="1,2,3",description="comma separated list of channels indices") channels_str
-// @String(label="Spot Size", value="0.5,0.5,0.5",description="comma separated list of spot size in microns") spot_size_str
+// @Float(label="Spot Size", value=0.2,description="comma separated list of spot size in microns") spot_size
 // @String(label="Feature", choices={"DoG","LoG","Top hat"}) feature
-// @String(label="Specificity[-log10]", value="3,3,3",description="comma separated list of specificity (>0)") specificity_str
+// @Float(label="Specificity[-log10]", value=3., description="comma separated list of specificity (>0)") specificity
 // @Boolean(label="Adaptive threshold", value=true, description="use image stats to define the threshold otherwise specificity defines directly the threshold") adaptive
 // @String(label="Mask channel",value="none") mask_str
-// @Double(label="Proximity threshold [um]",value=0.5,description="define the max distance between two nearby spots") dmax
 // @Boolean(label="Subpixel localization", value=true, description="enable subpixel localization") subpixel
 // @Boolean(label="Close on exit", value=false,description="close after processing") closeonexit
 // @Boolean(label="Save coordinates", value=false) savecoordinates
 // @Boolean(label="Z project", value=false) dozproject
 
 /*
- * Multiple channel spot 3d detection and colocalization
- *
- * Coordinate based colocalization based on a distance threshold.
+ * Detect blobs in one channel and report positive counts for all channels
+ * 
  *
  * The input can be an image stack or a csv file with (c,x,y,z) formats.
  * use the word 'image' for processing the current image or 'test' to run a test as input.
@@ -50,10 +49,10 @@
 function getMode() {
 	if (matches(path,".*test")) {
 		path = "Test Image.tif";
+		ref_channel = 1;
 		channels_str = "1,2,3";
-		spot_size_str = "0.2,0.2,0.2,0.2";
-		specificity_str = "3,3,3,3";
-		adaptive = true;
+		spot_size_str = 0.2;
+		specificity_str = 3;
 		mask_str = "";
 		return 1;
 	} else if (matches(path,".*image")) {
@@ -95,7 +94,8 @@ function parseMaskStr(str) {
 }
 
 function getMask(channel) {
-	if (isNaN(channel)) { return 0;	}
+	print("Mask channel " +  channel);
+	if (isNaN(channel)) { print(" no mask"); return 0;	}
 	print("Using channel " + channel + " as segmentation mask.");
 	run("Duplicate...", "title=segmentation duplicate channels="+channel);
 	run("Macro...", "code=v=(v>=1) stack");
@@ -127,8 +127,8 @@ function generateTestImage(channels) {
 		z = b + round((d-2*b) * random);
 		values = newArray(c);
 
-		for (j = 0; j < c; j++) {
-			if (random > 0.2) {
+		for (j = 0; j < c; j++) {			
+			if (j==0 || random > 0.2) {
 				Stack.setPosition(j+1, z, 1);
 				setPixel(x,y,10000);
 				values[j] = 1;
@@ -625,20 +625,19 @@ function thresholdAuto(id, pfa, adaptive_threshold) {
 	/* threshold image id in place */
 	selectImage(id);
 	run("Select None");
-	if (nSlices > 1) {
-		Stack.getStatistics(voxelCount, mean, min, max, stdDev);
-	} else {
-		getStatistics(area, mean, min, max, stdDev);
-	}
 	if (adaptive_threshold) {
 		stats = getStackRobustStatictics();
 		lambda = -2 * normppf(pow(10, -pfa));
 		threshold = stats[0] + lambda * stats[1];
 		print("    adaptive threshold");
-		print("    min: " + min + ", max: "+max);
-		print("    mean " + stats[0] + ", std: " + stats[1]);
+		print("    moments: [" + stats[0] + ", " + stats[1] + "]");
 		print("    specificity: " + pfa + ", quantile: "+lambda+", threshold: "+threshold);
-	} else {		
+	} else {
+		if (nSlices > 1) {
+			Stack.getStatistics(voxelCount, mean, min, max, stdDev);
+		} else {
+			getStatistics(area, mean, min, max, stdDev);
+		}
 		print("    fixed threshold");
 		print("    min: " + min + ", max: "+max);
 		print("    threshold: " + pfa );
@@ -647,11 +646,9 @@ function thresholdAuto(id, pfa, adaptive_threshold) {
 	run("Macro...", "code=v=(v>="+threshold+") stack");
 }
 
-function localizeSpots(id, channel_idx) {
+function localizeSpots(i, channel_idx) {
 	/* localize spots and return coordinates as a (n,4) array */
-	
-	selectImage(id);
-	
+
 	setThreshold(0.5, 1);
 	run("Make Binary", "method=Default background=Dark black");
 
@@ -703,7 +700,36 @@ function refineLocalization(id, channel, coords) {
 	}
 }
 
-function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx, subpixel, mask_id, adaptive) {
+function preProcessSpot(channel, feature, size, pfa, mask_id, adaptive) {
+	print(" - preprocess spots in channel " + channel);
+
+	run("Select None");
+
+	id0 = getImageID;
+
+	// compute a difference of Gaussian
+	if (feature == "DOG") {
+		id1 = blobDOG(channel, true, size);
+	} else if (feature == "LOG") {
+		id1 = blobLOG(channel, true, size);
+	} else if (feature == "Top hat") {
+		id1 = blobTH(channel, true, size);
+	} else {
+		run("Duplicate...", "title=id1 duplicate channels="+channel);
+		id1 = getImageID();
+	}
+	
+	// combine result with mask
+	if (mask_id < 0) {
+		imageCalculator("Multiply stack", id1, mask_id);
+	}
+
+	// threshold
+	thresholdAuto(id1, pfa, adaptive);
+	return id1;
+}
+
+function detect3DSpots(channel, feature, size, pfa, subpixel, mask_id, adaptive) {
 	/*
 	 * detect spots and return coordinates in physical units as an array
 	 *
@@ -719,10 +745,6 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 	 *  Returns
 	 *   an array (4,n) of coordinates (c,x,y,z) in physical units
 	 */
-
-	channel = channels_list[channel_idx];
-	size = size_list[channel_idx];
-	pfa = pfa_list[channel_idx];
 
 	print(" - detect spots in channel " + channel);
 
@@ -757,7 +779,7 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 	imageCalculator("Multiply stack", id1, id3);
 	selectImage(id3); close();
 
-	coords = localizeSpots(id1, channel_idx);
+	coords = localizeSpots(id1, channel);
 
 	refineLocalization(id1, channel, coords);
 
@@ -767,108 +789,95 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 	return coords;
 }
 
-function coords2Table(tbl, coords, channels, sizes) {
-	/*
-	 * Records the coordinates in a table
-	 *
-	 * Parameter
-	 *  tbl (string): table name
-	 *  coords (array): (3,n) array with x,y,z in um
-	 *  channels (array): spot channel list
-	 *  size (number): spot size used for detection
-	 *
-	 */
-
-	Table.create(tbl);
-	selectWindow(tbl);
-	N = coords.length / 4;
-	row = Table.size;
-	for (i = 0; i < N; i++) {
-		Table.set("Channel",   row+i, channels[coords[4*i]]);
-		Table.set("X [um]",    row+i, coords[4*i+1]);
-		Table.set("Y [um]",    row+i, coords[4*i+2]);
-		Table.set("Z [um]",    row+i, coords[4*i+3]);
-		Table.set("Size [um]", row+i, sizes[coords[4*i]]);
-	}
-	Table.update();
-}
-
-function loadCoordsTable(path, channels) {
-	/*
-	 * Load coordinates from a table
-	 *
-	 * returns
-	 * a (4,n) array with the channel index in the channels
-	 */
-	Table.open(path);
-	N = Table.size;
-	coords = newArray(4*N);
-	for (i = 0; i < N; i++) {
-		channel = Table.get("Channel", i);
-		for (idx = 0; idx < channels.length; idx++) {
-			if (channels[idx] == channel) { break; }
+function measureSpotIntensity(x, y, z, spot_size) {
+	/* Measure instensity in a 3D stack at position (x,y,z) */
+	Stack.getDimensions(width, height, _, depth, _);
+	getVoxelSize(dx, dy, dz, unit);
+	x = x / dx;
+	y = y / dy;
+	z = z / dy;
+	sx = spot_size / dx;
+	sy = spot_size / dy;
+	sz = spot_size / dz;
+	a = 1;
+	x0 = maxOf(0, minOf(width-1, x - a * sx));
+	x1 = maxOf(0, minOf(width-1, x + a * sx));
+	y0 = maxOf(0, minOf(height-1, y - a * sy));
+	y1 = maxOf(0, minOf(height-1, y + a * sy));
+	z0 = maxOf(0, minOf(depth-1, z - a * sz));
+	z1 = maxOf(0, minOf(depth-1, z + a * sz));
+	print(x,y,z,sx,sy,sz,x0,x1,y0,y1,z0,z1);
+	sw = 0;
+	swv = 0;
+	for (zj = z0; zj <= z1; zj++) {
+		dz = (zj - z) / sz;
+		Stack.setPosition(1, zj, 1);
+		for (yj = y0; yj <= y1; yj++) {
+			dy = (yj - y) / sy;
+			for (xj = x0; xj <= x1; xj++) {
+				v = getPixel(xj,yj);
+				dx = (xj - x) / sx;
+				w = exp(0.5*dx*dx+dy*dy+dz*dz);
+				sw += w;
+				swv += w * v;
+			}
 		}
-		coords[4*i]   = idx;
-		coords[4*i+1] = Table.get("X [um]", i);
-		coords[4*i+2] = Table.get("Y [um]", i);
-		coords[4*i+3] = Table.get("Z [um]", i);
 	}
-	return coords;
+	return swv / sw;
 }
 
-function detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive) {
-	setBatchMode("hide");
-	selectImage(id);
-	print("Detect 3D spots in image " + getTitle);
-	coords = newArray(0);
-	for (idx = 0; idx < channels.length; idx++) {
-		current_coords = detect3DSpots(channels, feature, spot_size, specificity, idx, subpixel, mask_channel, adaptive);
-		coords = Array.concat(coords, current_coords);
+function measureIntensity(id, coords, spot_size, channel, tbl) {
+	/* Measure intensities on all channels at spots locations */
+	print("  - Measuring intensities in channel " + channel);	
+	selectWindow(tbl);	
+	selectImage(id);		
+	print(coords.length/4);
+	for (i = 0; i < coords.length / 4; i++) {		
+		x = coords[4*i+1];
+		y = coords[4*i+2];
+		z = coords[4*i+3];
+		Table.set("x", i, x);
+		Table.set("y", i, y);
+		Table.set("z", i, y);
+		v = measureSpotIntensity(x, y, z, spot_size);
+		Table.set("ch"+channel, i, v);
 	}
-	setBatchMode("exit and display");
-	return coords;
+	Table.update;
 }
 
+function detectAndMeasure(id, ref_channel, channels, feature, specificity, spot_size, mask_channel, adaptive) {
+	selectImage(id);	
+	coords = detect3DSpots(ref_channel, feature, spot_size, specificity, subpixel, mask_channel, adaptive);	
+	tbl = "Spots intensities.csv";
+	Table.create(tbl);
+	for (c = 0; c < channels.length; c++) {
+		selectImage(id);	
+		id1 = preProcessSpot(channels[c], feature, spot_size, specificity, mask_id, adaptive);
+		measureIntensity(id1, coords, spot_size, channels[c], tbl);	
+		selectImage(id1); close();
+	}
+}
 
-function loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive) {
+function loadData(mode) {
 	/* Load points data and set the basename */
 	if (mode==1) {
 		print("Test image");
 		generateTestImage(channels);
 		id = getImageID();
-		basename = "test image";
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive);
-		//if (isOpen(basename+"-points.csv")) {selectWindow(basename+"-points.csv");run("Close");}
-		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
+		basename = "test image";		
 	} else if (mode==2) {
 		print("[Using active image "+getTitle()+"]");
 		basename = File.getNameWithoutExtension(getTitle);
-		id = getImageID();
-		mask_id = getMask(mask_channel);
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive);
-		if (mask_id < 0) {
-			selectImage(mask_id); close();
-		}
-		//coords2Table(basename+"points.csv", coords, channels, spot_size);
-	} else if (mode==3) {
-		basename = File.getNameWithoutExtension(path);
-		print("Loading csv " + path + " table");
-		open(path);
-		coords = loadCoordsTable(path);
+		id = getImageID();		
 	} else {
 		basename = File.getNameWithoutExtension(path);
 		print("Opening image");
 		print(path);
 		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		id = getImageID();
-		mask_id = getMask(mask_channel);
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive);
-		if (mask_id < 0) {
-			selectImage(mask_id); close();
-		}
-		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
+		
 	}
-	return coords;
+	return id;
 }
 
 
@@ -1153,30 +1162,35 @@ function zProjectAndShowROIs(mode, coords, channels, spot_size) {
 
 function main() {
 	/* Entry point */
+	setBatchMode("hide");
 	start_time = getTime();
 	mode = getMode();
 	channels = parseCSVInt(channels_str);
-	specificity = parseCSVFloat(specificity_str);
-	spot_size = parseCSVFloat(spot_size_str);
 	mask_channel = parseMaskStr(mask_str);
-	coords = loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive);
-	codes = computeCodes(coords, channels, dmax);
-	showCodes("codes.csv", codes, channels);
-	sets = powerSet(channels.length);
-	counts = countsCodeBySet(codes, sets, channels);
-	showCounts("counts.csv", counts, sets, channels);
-	agg = aggregateCountsPerSet(counts, sets, channels);
-	agg1 = correctAggCounts(agg, sets, channels);
-	agg2 = divideBySetCardinality(agg1,sets,channels);
-	appendRecord(agg2, sets, channels, feature, specificity, spot_size);	
-	addOverlay(mode, coords, channels, spot_size);
-	exportCoordsToCSV(mode, coords, channels, spot_size);
-	zProjectAndShowROIs(mode, coords, channels, spot_size);
-	end_time = getTime();
-	run("Collect Garbage");call("java.lang.System.gc");
-	run("Collect Garbage");call("java.lang.System.gc");
-	print("Finished in " + (end_time-start_time)/1000 + " seconds.");
+	id = loadData(mode);
+	mask_id = getMask(mask_channel);
+	detectAndMeasure(id, ref_channel, channels, feature, specificity, spot_size, mask_channel, adaptive);
+	if (mask_id < 0) {
+		close(mask_id);
+	}
+//	codes = computeCodes(coords, channels, dmax);
+//	showCodes("codes.csv", codes, channels);
+//	sets = powerSet(channels.length);
+//	counts = countsCodeBySet(codes, sets, channels);
+//	showCounts("counts.csv", counts, sets, channels);
+//	agg = aggregateCountsPerSet(counts, sets, channels);
+//	agg1 = correctAggCounts(agg, sets, channels);
+//	agg2 = divideBySetCardinality(agg1,sets,channels);
+//	appendRecord(agg2, sets, channels, feature, specificity, spot_size);
+//	addOverlay(mode, coords, channels, spot_size);
+//	exportCoordsToCSV(mode, coords, channels, spot_size);
+//	zProjectAndShowROIs(mode, coords, channels, spot_size);
 	if (closeonexit) {run("Close All");}
+	setBatchMode("exit and display");
+	run("Collect Garbage");call("java.lang.System.gc");
+	run("Collect Garbage");call("java.lang.System.gc");	
+	end_time = getTime();
+	print("Finished in " + (end_time-start_time)/1000 + " seconds.");
 }
 
 main();

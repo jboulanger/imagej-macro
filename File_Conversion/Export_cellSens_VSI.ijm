@@ -400,7 +400,7 @@ function processCellSensVSIImageList(path, info, resolution_level, tile_width, t
 	setBatchMode("exit and display");	
 }
 
-
+start_time = getTime();
 run("Bio-Formats Macro Extensions");
 
 info = parseCellSenseSeries(ipath);
@@ -414,3 +414,5 @@ if (action == "Show information") {
 }
 
 Ext.close();
+end_time = getTime();
+print("Elapsed time " + (end_time - start_time) / 1000 + " seconds.");

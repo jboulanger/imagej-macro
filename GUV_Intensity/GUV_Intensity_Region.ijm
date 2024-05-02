@@ -127,8 +127,12 @@ function segment(scale, lambda) {
 	run("Gaussian Blur...", "sigma="+3*scale+" stack");	
 	imageCalculator("Subtract stack 32-bit", id1, id2);
 	selectImage(id2); close();
-	selectImage(id1);	
-	Stack.getStatistics(voxelCount, mean, min, max, std)
+	selectImage(id1);
+	if  (nSlices>1)	{
+		Stack.getStatistics(voxelCount, mean, min, max, std);
+	} else {
+		getStatistics(area, mean, min, max, std);
+	}
 	threshold = mean + lambda * std;
 	setThreshold(threshold, max);	
 	run("Convert to Mask", "method=Default background=Default");			
