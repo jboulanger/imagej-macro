@@ -872,7 +872,7 @@ function segmentBackground(id, channel, logpfa, zoom) {
 	run("Median...", "radius="+maxOf(2, Math.ceil(1+5/zoom)));
 	A = convertImageToArray();
 	t = maxOf(1, computeArrayQuantile(A, pow(10.,-logpfa)));
-	print(" - background threshold " + t + " @ perc:"+pow(10,-logpfa));
+	print(" - background threshold " + t + " @ perc:"+pow(10,-logpfa) + " ("+logpfa+")");
 	Array.getStatistics(A, min, max);
 	setThreshold(t, max);
 	run("Convert to Mask");

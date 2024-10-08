@@ -3,8 +3,9 @@
 #@String(label="mode",choices={"2D","3D","3D+time","2D+time"}) mode_str
 #@Float(label="smoothing",value=2,description="converted to a pvalue =10^-smoothing") smoothing
 #@Integer(label="iterations",value=4) niter
-#@Float(label="camera gain",value=-1, description="if negative, noise parameter are estimated") gain
-#@Float(label="camera noise offset",value=0, description="offfset = DCvariance - gain * DCmean") offset
+#@Float(label="sensor gain",value=-1, description="if negative, noise parameter are estimated") gain
+#@Float(label="sensor offset",value=0, description="offset") offset
+#@Float(label="readout noise",value=0, description="readout in gray levels") readout
 #@String (label="Username", value="username", description="Username on the host") username
 #@String (label="Host", value="hex", description="hostname to which command are send") hostname
 #@File (label="Local share",description="Local mounting point of the network share", style="directory") local_share
@@ -27,7 +28,7 @@ remote_template_path = remote_jobs_dir + '/' + template_name;
 local_template_path = local_jobs_dir + File.separator + template_name;
 patch = parsePatchStr(patch_str);
 mode = parseModeStr(mode_str);
-noise = parseNoise(gain,offset);
+noise = parseNoise(gain,offset,readout);
 pval = pow(10,-smoothing);
 var jobid = 0;	
 // create a job folder if needed
@@ -161,9 +162,9 @@ function parseModeStr(str) {
 	return mode;
 }
 
-function parseNoise(_gain,_offset) {
+function parseNoise(_gain,_offset,_readout) {
 	if (_gain > 0) {
-		return " -noise " + _gain + "," + _offset;
+		return " -noise " + _gain + "," + _offset + "," + _readout;
 	} else {
 		return "";
 	}
