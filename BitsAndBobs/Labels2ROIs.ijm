@@ -3,6 +3,11 @@
 /*
  * Convert an image of labels to ROIs
  * 
+ * Usage
+ * -----
+ * Open a label
+ * Open the macro and press run
+ * 
  * ROI are names as ROI-label-channel-frame and colored by label
  * 
  * Jerome Boulanger 2024
@@ -45,13 +50,22 @@ function labels2roi(colormode) {
 	 *  colormode: "label" or "channel"	
 	 * 
 	 */
-	Stack.setDisplayMode("grayscale");
-	Stack.getDimensions(width, height, channels, slices, frames);	
-	print(channels);
+	setBatchMode("hide");
+	iscomposite = false;
+	if (nSlices > 1) {
+		Stack.getDisplayMode(mode);
+		if (mode == "Composite") {
+			iscomposite = true;
+			Stack.setDisplayMode("grayscale");
+		}
+	} 
+	getDimensions(width, height, channels, slices, frames);
 	colors = newArray("red","green","blue","yellow","magenta","orange");
 	for (frame = 1; frame <= frames; frame++) {
 		for (channel = 1; channel <= channels; channel++) {
-			Stack.setPosition(channel, 0, frame);
+			if (nSlices > 1) {
+				Stack.setPosition(channel, 0, frame);
+			}
 			labels = getValue("Max")+1;
 			for (label = 1; label <= labels; label++) {
 				setThreshold(label-0.1, label+0.1);
@@ -64,13 +78,17 @@ function labels2roi(colormode) {
 					} else {
 						Roi.setStrokeColor(colors[(channel-1)%colors.length]);
 					}									
-					roiManager("add");						
-					print(label, channel, frame);
+					roiManager("add");					
 				}
 			}
 		}
 	}
 	resetThreshold;
+	run("From ROI Manager");
+	if (iscomposite) {
+		Stack.setDisplayMode("Composite");
+	}
+	setBatchMode("exit and display");
 }
 
 
@@ -81,6 +99,6 @@ if (nImages==0) createLabels();
 labels2roi(colormode);
 
 // convert the roi to overlays
-if (asoverlay) { 
-	run("From ROI Manager");
+if (!asoverlay) { 
+	run("To ROI Manager");
 }
