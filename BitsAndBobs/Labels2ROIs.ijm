@@ -3,15 +3,19 @@
 /*
  * Convert an image of labels to ROIs
  * 
+ * - ROI are names as ROI-label-channel-frame and colored by label
+ * - ROI are converted to overlay and back to ROI manager to use batchmode
+ * 
+ * 
  * Usage
  * -----
  * Open a label
  * Open the macro and press run
  * 
- * ROI are names as ROI-label-channel-frame and colored by label
  * 
  * Jerome Boulanger 2024
  */
+ 
 function createLabels() {
 	/*Create a test image*/
 	width = 320;

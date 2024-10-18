@@ -226,7 +226,7 @@ function reportEvents(tbl1, tbl2, interval, frames, unit) {
 
 function computeEventsStats(tbl1, tbl2, interval, frames, unit) {
 	/* 
-	 * Compute the number of peaks 
+	 * Compute the number of peaks, frequency and mean amplitude
 	 * 
 	 */
 	selectWindow(tbl1);
@@ -319,7 +319,7 @@ if (!File.exists(roi_file)) {
 	exit();
 }
 print("Opening " + File.getName(roi_file));
-open(roi_file);
+roiManager("open", roi_file);
 print("Number of ROIs", roiManager("count"));
 
 // start processing
