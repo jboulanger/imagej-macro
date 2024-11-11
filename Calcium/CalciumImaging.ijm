@@ -480,6 +480,15 @@ function makeFigure(tbl1, metric) {
 	return dst;
 }
 
+function segmentActiveROI() {
+	run("Z Project...", "projection=[Max Intensity]");
+	run("Median...", "radius=5");
+	setThreshold(getValue("Mean")+3*getValue("StdDev"), getValue("Max"));
+	run("Analyze Particles...", "size=100-Infinity clear add");
+	close();
+}
+
+
 // close all images
 run("Close All");
 var batchid;
@@ -531,8 +540,15 @@ if (File.exists(roi_file)) {
 		roiManager("open", roi_file);
 	} else {
 		if (roiManager("count")==0) {
-			print("ERROR: No ROI");
-			exit();
+			//print("Segmenting active ROIs");
+			//segmentActiveROI();
+			print("Use the whole image");
+			run("Select All");
+			roiManager("Add");
+			if (roiManager("count")==0) {
+				print("ERROR: No ROI");
+				exit();
+			}
 		}
 	}
 } 
@@ -569,14 +585,27 @@ if (save_tables) {
 	print("Saving signals:\n" +  folder + File.separator +table_signal);
 	Table.save(folder + File.separator + table_signal);
 	run("Close");
-	selectWindow(table_events);
-	print("Saving events:\n" +  folder + File.separator + table_events);
-	Table.save(folder + File.separator + table_events);
+	
+	selectWindow(table_peak_events);
+	print("Saving events:\n" +  folder + File.separator + table_peak_events);
+	Table.save(folder + File.separator + table_peak_events);
 	run("Close");
-	selectWindow(table_stats);
-	print("Saving statistics:\n" +  folder + File.separator + table_stats);
-	Table.save(folder + File.separator + table_stats);
+	
+	selectWindow(table_peak_stats);
+	print("Saving statistics:\n" +  folder + File.separator + table_peak_stats);
+	Table.save(folder + File.separator + table_peak_stats);
 	run("Close");
+	
+	selectWindow(table_onoff_events);
+	print("Saving events:\n" +  folder + File.separator + table_onoff_events);
+	Table.save(folder + File.separator + table_onoff_events);
+	run("Close");
+	
+	selectWindow(table_onoff_stats);
+	print("Saving statistics:\n" +  folder + File.separator + table_onoff_stats);
+	Table.save(folder + File.separator + table_onoff_stats);
+	run("Close");
+	
 	figname = folder + File.separator + File.getNameWithoutExtension(image_file) + "-figure.jpg";
 	print("Saving figure\n"+ figname);
 	selectImage(fig);
