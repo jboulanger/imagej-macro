@@ -1,7 +1,7 @@
 //@Integer (label="cell channel",value=1) chan1
 //@Integer (label="nuclei channel",value=2) chan2
 //@Float (label="diameter", value=30) diameter
-//@String(label="model", choices={"cyto2","LC2"}) model
+//@String(label="model", choices={"cyto2","cyto3","LC2"}) model
 //@Boolean(label="use GPU", value=true) use_gpu
 
 /*
@@ -11,7 +11,7 @@
  */
 
 /* Configure here cellpose */
-conda = "conda";
+conda = "micromamba";
 // conda = "C:\\Users\\User\\miniconda3\Script\conda.exe"
 environment = "imaging";
 tmpdir = "/tmp";

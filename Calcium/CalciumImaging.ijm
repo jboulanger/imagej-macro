@@ -16,6 +16,36 @@
  *
  * Jerome for Feline (Sep-2024), Melissa (Nov-2024)
  */
+ 
+function createTest() {
+	run("Close All");
+	if (isOpen("ROI Manager")) { close("ROI Manager"); }
+	n = 100;
+	m = 3;
+	newImage("HyperStack", "16-bit grayscale-mode", n, n, 1, 1, 100);
+	for (k = 0; k < m; k++) {
+		makeOval(n*(k+1)/(m+1)-5, n/2-5, 10, 10);
+		roiManager("add");
+	}
+	values = newArray(roiManager("count"));
+	for (frame = 0; frame < 100; frame++) {
+		for (i = 0; i < roiManager("count"); i++) {
+			if (random < 0.1 && values[i] < 1000/4) {
+				values[i] = 1000;
+			}
+			values[i] = values[i] * 0.5;
+			roiManager("select", i);
+			Stack.setFrame(frame);
+			setColor(values[i]);
+			fill();
+			run("Select None");
+		}
+	}
+	run("Macro...", "code=v=100+v*exp(-z/500) stack");
+	
+	run("Add Specified Noise...", "stack standard=5");
+	run("Properties...", "channels=1 slices=1 frames=100 pixel_width=0.1 pixel_height=0.1 voxel_depth=0.1 frame=[1 sec]");
+}
 
 function computeSignal() {
 	/*
@@ -122,8 +152,14 @@ function standardizeArray(data) {
    	 */
 	Array.getStatistics(data, min, max, mean, stdDev);
 	dest = newArray(n);
-	for (i = 0; i < data.length; i++) {
-		dest[i] = (data[i] - mean) / stdDev;
+	if (stdDev > 1e-6) {
+		for (i = 0; i < data.length; i++) {
+			dest[i] = (data[i] - mean) / stdDev;
+		}
+	} else {
+		for (i = 0; i < data.length; i++) {
+			dest[i] = (data[i] - mean);
+		}
 	}
 	return dest;
 }
@@ -152,15 +188,16 @@ function findPeakEvents(score, threshold) {
 	 * Args:
 	 *  score (array)
 	 *  tolerance (float)
+	 *  
 	 * Returns:
-	 * 	Array with value equal to amplitude of peak and 0 otherwise
+	 * 	Array with value equal to maximum of peak in original signal and 0 otherwise
 	 */
 	events = newArray(score.length);
-	smoothed = filterRank(score, 5, 0.5);
-	baseline = filterRank(score, 7, 1); // maximum filter
-	for (j = 1; j < score.length-1; j++) {
-		if (smoothed[j] > threshold && score[j] >= baseline[j-1] && score[j] >= baseline[j+1]) {
-			events[j] = smoothed[j];
+	smoothed = filterRank(score, 3, 0.5);
+	baseline = filterRank(score, 5, 1); // maximum filter
+	for (j = 0; j < score.length-1; j++) {
+		if (score[j] > threshold && score[j] >= baseline[j]) {
+			events[j] = score[j];
 		}
 	}
 	return events;
@@ -179,29 +216,44 @@ function findOnEvents(score, threshold) {
 	 * 	Array with mean amplitude and 0 otherwise
 	 */
 	events = newArray(score.length);
-    //baseline = filterRank(score, 7, 1);
+	smoothed = filterRank(score, 3, 0.5);
+	baseline = filterRank(score, 5, 1); // maximum filter
 	start = -1; // start of event
+	peak  = 0; // peak flag
 	duration = 0; // duration of event
 	amplitude = 0; // amplitude
 	for (j = 0; j < score.length-1; j++) {
+		
 		// start of an event
-		if (score[j] > threshold && start == -1) {
+		if (smoothed[j] > threshold && start == -1) {
 			start = j;
 		}
+		
+		// during the event
 		if (score[j] > threshold && start > -1) {
-			amplitude += score[j];
+			//amplitude = maxOf(score[j], amplitude);
 			duration++;
+			if (score[j] >= baseline[j]) {
+				peak++;
+				amplitude = score[j];
+			}
 		}
-		// end of events
-		if (score[j] < threshold && start > -1) {
-			// set the event array to the average amplitude
+		
+		// end of events: under baseline or peak>1
+		if ((smoothed[j] < threshold || peak > 1 || j>=score.length-2) && start > -1 ) {
+			if (peak > 1 && duration > 2) {
+				duration = duration - 3;
+				j = j - 1;
+			}
+			// set the event array to the max amplitude
 			for (k = 0; k <= duration; k++) {
-				events[start+k] = amplitude / duration;
+				events[start+k] = amplitude ;
 			}
 			// reset the events accumulators
 			start = -1;
 			duration = 0;
 			amplitude = 0;
+			peak = 0;
 		}
 	}
 	return events;
@@ -309,7 +361,7 @@ function reportOnEvents(tbl1, tbl2, interval, frames, unit) {
 				npeaks += peaks[j];
 			}
 			// stop
-			if (onoff[j] == 0 && start > -1) {
+			if ((onoff[j] == 0 || j == onoff.length - 1)&& start > -1) {
 				selectWindow(tbl2);
 				row = Table.size;
 				Table.set("roi", row, name);
@@ -392,16 +444,16 @@ function computeOnEventsStats(tbl1, tbl2, interval, frames, unit) {
 		onoff = Table.getColumn(columns[K*roi+5]);
 		name = replace(columns[K*roi+5], "-on", "");
 		// count the leading front of peaks
-		n = 0;
-		s = 0;
-		d = 0;
+		n = 0; // number of frames
+		s = 0; // sum of amplitude
+		d = 0; // sum of durations
 		level = 0;
 		duration = 0;
 		for (j = 0; j < onoff.length-1; j++) {
 			// start segment
 			if (onoff[j] > 0 && level == 0) {
 				n += 1;
-				s += onoff[j];
+				//s += onoff[j];
 				level = 1;
 			}
 			// segment
@@ -494,64 +546,77 @@ run("Close All");
 var batchid;
 batchid = batchid + 1;
 print("~~~~~~~~~~["+batchid+"]~~~~~~~~~~~~~~~");
-folder = File.getDirectory(image_file);
-print("Current folder :" + folder);
-
-// open the image
-print("Opening " + File.getName(image_file));
-
-// bioformat does not decode the frame interval of hyperstacks
-if (endsWith(image_file, ".tif") || endsWith(image_file, ".tiff")) {
-	open(image_file);
+print(image_file);
+print(matches(image_file, ".*test"));
+if (matches(image_file, ".*test")>0) {
+	createTest();
+	interval = 1;
+	frames = 100;
+	unit = "s";
+	rename("test");
+	is_test = true;
 } else {
-	run("Bio-Formats Importer", "open=["+image_file+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
-}
 
-// get the frame interval, unit and number
-selectWindow(File.getName(image_file));
-interval = Stack.getFrameInterval();
-Stack.getUnits(X, Y, Z, unit, Value);
-Stack.getDimensions(width, height, channels, slices, frames);
-print("Image width:",width,", height:",height, ", depth:", slices, ", frames:", frames);
+	folder = File.getDirectory(image_file);
+	print("Current folder :" + folder);
+	
+	// open the image
+	print("Opening " + File.getName(image_file));
+	
+	// bioformat does not decode the frame interval of hyperstacks
+	if (endsWith(image_file, ".tif") || endsWith(image_file, ".tiff")) {
+		open(image_file);
+	} else {
+		run("Bio-Formats Importer", "open=["+image_file+"] color_mode=Composite rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
+	}
 
-if (frames==1 && slices > 1) {
-	print("WARNING: the number of frame is 1. Use Stack to Hyperstack to fix the dimensions.");
-}
-
-if (interval == 0) {
-	print("WARNING: frame interval is 0, will not be able to compute frequencies.");
-}
-
-// Close the ROI manager
-if (isOpen("ROI Manager")) {
-	selectWindow("ROI Manager");
-	run("Close");
-}
-
-// find the roi file
-roi_file = folder + File.separator + File.getNameWithoutExtension(image_file) + "_ROIset.zip";
-if (File.exists(roi_file)) {
-	print("Opening " + File.getName(roi_file));
-	roiManager("open", roi_file);
-} else {
-	roi_file = folder + File.separator + File.getNameWithoutExtension(image_file) + "_ROIset.roi";
+	
+	// get the frame interval, unit and number
+	selectWindow(File.getName(image_file));
+	interval = Stack.getFrameInterval();
+	Stack.getUnits(X, Y, Z, unit, Value);
+	Stack.getDimensions(width, height, channels, slices, frames);
+	print("Image width:",width,", height:",height, ", depth:", slices, ", frames:", frames);
+	
+	if (frames==1 && slices > 1) {
+		print("WARNING: the number of frame is 1. Use Stack to Hyperstack to fix the dimensions.");
+	}
+	
+	if (interval == 0) {
+		print("WARNING: frame interval is 0, will not be able to compute frequencies.");
+	}
+	
+	// Close the ROI manager
+	if (isOpen("ROI Manager")) {
+		selectWindow("ROI Manager");
+		run("Close");
+	}
+	
+	// find the roi file
+	roi_file = folder + File.separator + File.getNameWithoutExtension(image_file) + "_ROIset.zip";
 	if (File.exists(roi_file)) {
 		print("Opening " + File.getName(roi_file));
 		roiManager("open", roi_file);
 	} else {
-		if (roiManager("count")==0) {
-			//print("Segmenting active ROIs");
-			//segmentActiveROI();
-			print("Use the whole image");
-			run("Select All");
-			roiManager("Add");
+		roi_file = folder + File.separator + File.getNameWithoutExtension(image_file) + "_ROIset.roi";
+		if (File.exists(roi_file)) {
+			print("Opening " + File.getName(roi_file));
+			roiManager("open", roi_file);
+		} else {
 			if (roiManager("count")==0) {
-				print("ERROR: No ROI");
-				exit();
+				//print("Segmenting active ROIs");
+				//segmentActiveROI();
+				print("Use the whole image");
+				run("Select All");
+				roiManager("Add");
+				if (roiManager("count")==0) {
+					print("ERROR: No ROI");
+					exit();
+				}
 			}
 		}
-	}
-} 
+	} 
+}
 
 print("Number of ROIs", roiManager("count"));
 
