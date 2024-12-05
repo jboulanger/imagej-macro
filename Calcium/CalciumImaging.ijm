@@ -1,7 +1,8 @@
-#@File(label="image file") image_file
-#@Integer(label="bandwidth",value=21) bandwidth
-#@String(label="metric", choices={"signal","sbr","zscore"}) metric
-#@Float(label="threshold", value=0.025) threshold
+#@File(label="Image file", description="input file (use batch for several files)") image_file
+#@Integer(label="Bandwidth",value=21, description="Window size used to estimate baseline level (F0)") bandwidth
+#@String(label="Metric", choices={"signal","sbr","zscore"}) metric
+#@Boolean(label="Prefilter", value=true, description="Prefilter the signal") prefilter
+#@Float(label="Threshold", value=0.025) threshold
 #@Boolean(label="Save Tables", value=true) save_tables
 #@OUTPUT number_of_events
 
@@ -98,6 +99,106 @@ function filterRank(values, bandwidth, rank) {
 	return dest;
 }
 
+
+function filterAdaptive(f,sigma,niter) {
+	/* 
+	 *  Smooth a 1d signal
+	 *  
+	 *  Args:
+	 *   f (array) : original signal
+	 *   sigma (number) : noise standard deviation
+	 *   niter (number) : number of iterations
+	 *   
+	 * Returns (array) filtered signal
+	 */
+	n = f.length;
+	u0 = Array.copy(f);
+	u1 = newArray(n);
+	v0 = newArray(n);
+	v1 = newArray(n);
+	stop = newArray(n);
+
+	for (i = 0; i < n; i++) {
+		v0[i] = sigma * sigma;
+	}
+
+	for (iter = 0; iter < niter; iter++) {
+
+		h = pow(2,iter);
+
+		for (i = 0; i < n; i++) if (stop[i]==0) {
+
+			j0 = maxOf(0, i - h);
+			j1 = minOf(n - 1, i + h);
+
+			swu = 0;
+			swv = 0;
+			sw = 0;
+
+			for (j = j0; j <= j1; j++) {
+
+				d = (u0[j] - u0[i]) * (u0[j] - u0[i]) /(9 * v0[i]);
+				w = exp(-0.5 * d);
+				sw += w;
+				swu += w * f[j];
+				swv += w *w *sigma*sigma;
+			}
+
+			if (sw > 0) {
+				u1[i] = swu / sw;
+				v1[i] = swv / sw;
+			}
+			
+			if (abs(u1[i] - u0[i]) >   sqrt(v0[i])) {
+				u1[i] = u0[i];
+				v1[i] = v0[i];
+				stop[i] = iter;
+			}
+		}
+
+		u0 = Array.copy(u1);
+		v0 = Array.copy(v1);
+	}
+	return u1;
+}
+
+function median(x) {
+	/* Median
+	 *  x (array): list of values
+	 * Return the median of the array x
+	 */
+	y = Array.copy(x);
+	Array.sort(y);
+	n = y.length;
+	if (n==0) {
+		return 0;
+	}
+	if (n%2==0) {
+		return 0.5*(y[n/2-1] + y[n/2]);
+	} else {
+		return y[(n-1)/2];
+	}
+}
+
+function estimateNoiseStd(f) {
+	/* Estimate noise standard deviation
+	 *  f (array) : 1d signal
+	 * Returns the estimated noise standard deviation
+	 */
+	n = f.length;
+	delta = newArray(n-2);	
+	for (i = 1; i < n-1; i++) {
+		delta[i-1] = minOf(f[i+1] - f[i], f[i] - f[i-1]);	
+	}
+	m = median(delta);
+	for (i = 0; i < delta.length; i++) {
+		delta[i] = abs(delta[i] - m);
+	}
+	m = 1.48 * median(delta) / sqrt(2);
+	return m;
+}
+
+
 function subtractArray(x, y) {
 	/*
 	 * Subtract two arrays (x-y)
@@ -181,7 +282,7 @@ function computeSBR(data, bandwidth) {
 	return ratio;
 }
 
-function findPeakEvents(score, threshold) {
+function findPeakEvents(score, baseline, threshold) {
 	/*
 	 * Find events as peaks
 	 *
@@ -193,8 +294,6 @@ function findPeakEvents(score, threshold) {
 	 * 	Array with value equal to maximum of peak in original signal and 0 otherwise
 	 */
 	events = newArray(score.length);
-	smoothed = filterRank(score, 3, 0.5);
-	baseline = filterRank(score, 5, 1); // maximum filter
 	for (j = 0; j < score.length-1; j++) {
 		if (score[j] > threshold && score[j] >= baseline[j]) {
 			events[j] = score[j];
@@ -203,7 +302,7 @@ function findPeakEvents(score, threshold) {
 	return events;
 }
 
-function findOnEvents(score, threshold) {
+function findOnEvents(score, baseline, threshold) {
 	/*
 	 * Identify events as ON/OFF events
 	 *
@@ -216,31 +315,31 @@ function findOnEvents(score, threshold) {
 	 * 	Array with mean amplitude and 0 otherwise
 	 */
 	events = newArray(score.length);
-	smoothed = filterRank(score, 3, 0.5);
-	baseline = filterRank(score, 5, 1); // maximum filter
 	start = -1; // start of event
 	peak  = 0; // peak flag
 	duration = 0; // duration of event
 	amplitude = 0; // amplitude
+	
 	for (j = 0; j < score.length-1; j++) {
 		
 		// start of an event
-		if (smoothed[j] > threshold && start == -1) {
+		if (score[j] > threshold && start == -1) {
 			start = j;
 		}
 		
 		// during the event
 		if (score[j] > threshold && start > -1) {
-			//amplitude = maxOf(score[j], amplitude);
 			duration++;
 			if (score[j] >= baseline[j]) {
 				peak++;
-				amplitude = score[j];
+				if (score[j] > amplitude && peak == 1) {
+					amplitude = score[j];
+				}
 			}
 		}
 		
-		// end of events: under baseline or peak>1
-		if ((smoothed[j] < threshold || peak > 1 || j>=score.length-2) && start > -1 ) {
+		// end of events: under baseline or peak > 1
+		if ((score[j] < threshold || peak > 1 || j >= score.length-2) && start > -1 ) {
 			if (peak > 1 && duration > 2) {
 				duration = duration - 3;
 				j = j - 1;
@@ -259,7 +358,7 @@ function findOnEvents(score, threshold) {
 	return events;
 }
 
-function computeAllSignals(table_name, bandwidth, metric, tolerance) {
+function computeAllSignals(table_name, bandwidth, metric, prefilter, tolerance) {
 	/*
 	 * Extract signal from image for each ROI
 	 * and store them in a Table
@@ -277,15 +376,19 @@ function computeAllSignals(table_name, bandwidth, metric, tolerance) {
 	 	sbr = computeSBR(signal, bandwidth);
 	 	zscore = standardizeArray(sbr);
 	 	if (metric == "zscore") {
-	 		peaks = findPeakEvents(zscore, tolerance);
-	 		onoff = findOnEvents(zscore, tolerance);
+	 		f = Array.copy(zscore);
 	 	} else if (metric == "sbr") {
-	 		peaks = findPeakEvents(sbr, tolerance);
-	 		onoff = findOnEvents(sbr, tolerance);
+	 		f = Array.copy(sbr);
 	 	} else {
-	 		peaks = findPeakEvents(signal, tolerance);
-	 		onoff = findOnEvents(signal, tolerance);
+	 		f = Array.copy(signal);
 	 	}
+	 	if (prefilter) {
+	 		sigma = estimateNoiseStd(f);
+	 		f = filterAdaptive(f, sigma, 4);
+	 	}
+	 	baseline = filterRank(f, 5, 1);
+	 	peaks = findPeakEvents(f, baseline, tolerance);
+	 	onoff = findOnEvents(f, baseline, tolerance);
 	 	Table.setColumn(name+"-signal", signal);
 	 	Table.setColumn(name+"-sbr", sbr);
 	 	Table.setColumn(name+"-zscore", zscore);
@@ -361,7 +464,7 @@ function reportOnEvents(tbl1, tbl2, interval, frames, unit) {
 				npeaks += peaks[j];
 			}
 			// stop
-			if ((onoff[j] == 0 || j == onoff.length - 1)&& start > -1) {
+			if ((onoff[j] == 0 || j == onoff.length - 1) && start > -1) {
 				selectWindow(tbl2);
 				row = Table.size;
 				Table.set("roi", row, name);
@@ -453,7 +556,6 @@ function computeOnEventsStats(tbl1, tbl2, interval, frames, unit) {
 			// start segment
 			if (onoff[j] > 0 && level == 0) {
 				n += 1;
-				//s += onoff[j];
 				level = 1;
 			}
 			// segment
@@ -461,7 +563,7 @@ function computeOnEventsStats(tbl1, tbl2, interval, frames, unit) {
 				duration++;
 			}
 			// end of segment
-			if (onoff[j] == 0 && level == 1) {
+			if (onoff[j] != onoff[j+1] && level == 1) {
 				d += duration;
 				s += onoff[j-1];
 				level = 0;
@@ -496,11 +598,26 @@ function makeFigure(tbl1, metric) {
 	columns = split(Table.headings,"\t");
 	frame = Table.getColumn("Frame");
 	nroi = (columns.length - 1) / K;
-	print("nroi:", nroi);
 	w = 680;
 	h = 400;
-	newImage("Figure", "RGB white", w, h*nroi, 1);
+	newImage("Figure", "RGB white", w, h, nroi);
 	dst = getImageID();
+	// compute min max 
+	yMin = 1e6;
+	yMax = 0;
+	for (roi = 0; roi < nroi; roi++) {
+		selectWindow(tbl1);
+		if (metric == "signal") {
+			sig = Table.getColumn(columns[K*roi+1]);
+		} else if (metric == "sbr") {
+			sig = Table.getColumn(columns[K*roi+2]);
+		} else {
+			sig = Table.getColumn(columns[K*roi+3]);
+		}
+		Array.getStatistics(sig, min, max, mean, stdDev);
+		yMin = minOf(yMin, min);
+		yMax = maxOf(yMax, max);
+	}
 	for (roi = 0; roi < nroi; roi++) {
 		selectWindow(tbl1);
 		if (metric == "signal") {
@@ -520,16 +637,22 @@ function makeFigure(tbl1, metric) {
 		Plot.setColor("green");
 		Plot.add("line", frame, onoff);
 		Plot.setLimitsToFit();
+		Plot.setLimits(0, sig.length, yMin, yMax);
 		Plot.update();
 		selectWindow("plot");
 		makeRectangle(20, 0, w, h);
 		run("Copy");
 		selectImage(dst);
-		makeRectangle(0, roi*h, w, h);
+		Stack.setSlice(roi+1);
+		//makeRectangle(0, roi*h, w, h);
 		run("Paste");
 		selectWindow("plot");close();
 	}
-	return dst;
+	selectImage(dst);
+	run("Make Montage...", "columns="+round(sqrt(nroi))+" rows="+Math.ceil(nroi/round(sqrt(nroi)))+" scale=1");
+	mnt = getImageID();
+	selectImage(dst);close();
+	return mnt;
 }
 
 function segmentActiveROI() {
@@ -546,8 +669,7 @@ run("Close All");
 var batchid;
 batchid = batchid + 1;
 print("~~~~~~~~~~["+batchid+"]~~~~~~~~~~~~~~~");
-print(image_file);
-print(matches(image_file, ".*test"));
+
 if (matches(image_file, ".*test")>0) {
 	createTest();
 	interval = 1;
@@ -556,7 +678,7 @@ if (matches(image_file, ".*test")>0) {
 	rename("test");
 	is_test = true;
 } else {
-
+	is_test = false;
 	folder = File.getDirectory(image_file);
 	print("Current folder :" + folder);
 	
@@ -632,7 +754,7 @@ table_onoff_events = File.getNameWithoutExtension(image_file) + "-onoff-events.c
 table_onoff_stats = File.getNameWithoutExtension(image_file) + "-onoff-stats.csv";
 
 // process all ROI
-computeAllSignals(table_signal, bandwidth, metric, threshold);
+computeAllSignals(table_signal, bandwidth, metric, prefilter, threshold);
 
 fig = makeFigure(table_signal, metric);
 
@@ -645,7 +767,7 @@ computePeakEventsStats(table_signal, table_peak_stats, interval, frames, unit);
 computeOnEventsStats(table_signal, table_onoff_stats, interval, frames, unit);
 
 // Save the 3 tables
-if (save_tables) {
+if (save_tables && !is_test) {
 	selectWindow(table_signal);
 	print("Saving signals:\n" +  folder + File.separator +table_signal);
 	Table.save(folder + File.separator + table_signal);
