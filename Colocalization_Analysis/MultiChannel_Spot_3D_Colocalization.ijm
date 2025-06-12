@@ -428,10 +428,12 @@ function cropBorder(id, border) {
 function correctBorder() {
 	// naive border correction
 	Stack.getDimensions(width, height, channels, slices, frames);
-	Stack.setSlice(1);
-	run("Multiply...", "value=0.5");
-	Stack.setSlice(slices);
-	run("Multiply...", "value=0.5");
+	if (slices > 1) {
+		Stack.setSlice(1);
+		run("Multiply...", "value=0.5");
+		Stack.setSlice(slices);
+		run("Multiply...", "value=0.5");
+	}
 	makeRectangle(2, 2, width-2, height-2);
 	run("Make Inverse");
 	for (k = 1; k < slices; k++) {
@@ -527,9 +529,14 @@ function localMaxima3D(id, size) {
 	sz = maxOf(2 * size / dz, 1);
 	run("Duplicate...", "title=id3 duplicate");
 	dst = getImageID;
-	run("Maximum 3D...", "x="+sx+" y="+sy+" z="+sz);
+	if (nSlices > 1) {
+		run("Maximum 3D...", "x="+sx+" y="+sy+" z="+sz);
+	} else {
+		run("Maximum...", "radius="+sx);
+	}
 	imageCalculator("Subtract 32-bit stack", dst, id);
 	run("Macro...", "code=v=(v==0) stack");
+	
 	correctBorder();
 	
 	return dst;
@@ -1148,6 +1155,8 @@ function zProjectAndShowROIs(mode, coords, channels, spot_size) {
 			run("Z Project...", "projection=[Max Intensity]");
 		}
 		addOverlay(mode, coords, channels, spot_size);
+		Stack.setDisplayMode("composite");
+		run("Flatten");
 	}
 }
 
