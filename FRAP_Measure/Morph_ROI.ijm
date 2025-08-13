@@ -260,7 +260,7 @@ function orderROIIndicesByFrame(rois) {
 function getROIFrame(i) {
 	// Frame position of the ROI at index id
 	roiManager("select", i);
-	Roi.getPosition(channel, slice, frame);	
+	Roi.getPosition(channel, slice, frame);
 	return frame;
 }
 
