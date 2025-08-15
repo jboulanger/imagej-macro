@@ -21,8 +21,8 @@ macro "Gold_Deblur3D" {
 	Dialog.addNumber("Lateral blur (nm):", 100);
 	Dialog.addNumber("Axial blur (nm):", 3000);
 	Dialog.addNumber("Zoom :", 1);
-	Dialog.addNumber("Number of iterations:", 3);
-	Dialog.addNumber("Background:", 100);
+	Dialog.addNumber("Number of iterations:", 5);
+	Dialog.addNumber("Background:", 0);
 	Dialog.show();
 	lateral = Dialog.getNumber();
 	axial = Dialog.getNumber();
@@ -74,7 +74,7 @@ function gold_deblur(sx, sy, sz, zoom, iter, background) {
 		selectImage(img1);
 		run("Median 3D...", "x=1 y=1 z=1");
 	}	
-	rename(appendToFilename(title, "_deblurred"));
+	rename(appendToFilename(title, "-deblurred"));
 	for (c = 1; c <= channels; c++) {
 		selectImage(id0); Stack.setChannel(c);
 		getLut(reds, greens, blues);
