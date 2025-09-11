@@ -2,6 +2,8 @@
 #@String(label="ROI names", description="list the name of the ROI, separated by comas, the order will define the ROI group index", value="cell,foci") roi_names_csv
 #@String(label="ROI colors", description="list the colors for the ROI, separated by comas", value="red,green") roi_colors_csv
 #@String(label="Measurment", choices={"RawIntDen","Mean","Area"}, style="list") measurement
+#@Float(label="Sampling", description="curviliear samping", values=5) sampling
+#@Float(label="Regularization", description="regularization factor", values=100) regularization
 
 /*
  * ROI Morphing and intensity measurment
@@ -70,6 +72,7 @@ function createMontage() {
 
 function bloombloom(tbl, roi_names, channel_names, measurement) {	
 	// morph roi and measure over time
+	print("Intepolate ROIs and measure");
 	for (i = 0; i < roi_names.length; i++) {
 		rois0 = getROIGroup(roi_names[i]);
 		rois1 = addIntermediateROIsForGroup(rois0);	
@@ -177,23 +180,27 @@ function addIntermediateROIs(id1, id2) {
 	name = Roi.getName;
 	color = Roi.getStrokeColor;
 	p1 = getROICoordinates(id1);	
+	
 	t2 = getROIFrame(id2);
 	p2 = getROICoordinates(id2);
+	
 	if (t2 - t1 < 1) {return newArray();}
+	
 	D = pairwiseDistance(p1, p2);
-	P = sinkhorn_uniform(D,100);	
-	threshold = 0.5 * matmax(P,-1);
+	P = sinkhorn_uniform(D, -1);	
+	threshold = 0.5 * matmax(P, -1);
 	print("Interpolation of roi:" +id1+"[t:"+t1+"] and roi:"+id2+" [t:"+t2+"]");
-	rois = newArray(t2-t1-1);
+	// store the new rois in an array
+	rois = newArray(t2 - t1 - 1);
 	for (k = 0; k < rois.length; k++) {
-		p = interpolateROICoordinates(P,p1,p2,t1,t2,t1+k+1,threshold);
-		rois[k] = addROIfromCoordinates(p,t1+k+1,name,color);		
+		p = interpolateROICoordinates(P, p1, p2, t1, t2, t1 + k + 1, threshold);
+		rois[k] = addROIfromCoordinates(p, t1 + k + 1, name, color);		
 	}
 	return rois;
 }
 
 function addROIfromCoordinates(p,t,name,color) {
-	// add a oi to the roi manager from the coordinates
+	// add a roi to the roi manager from the coordinates
 	n = matcol(p);
 	x = newArray(n);
 	y = newArray(n);
@@ -203,7 +210,7 @@ function addROIfromCoordinates(p,t,name,color) {
 	}	
 	makeSelection(3, x, y);		
 	run("Fit Spline");
-	run("Interpolate", "interval=1 smooth");
+	run("Interpolate", "interval="+sampling+" smooth");
 	Roi.setName(name);	
 	Roi.setStrokeColor(color);
 	Roi.setPosition(0, 0, t);
@@ -213,7 +220,13 @@ function addROIfromCoordinates(p,t,name,color) {
 }
 
 function interpolateROICoordinates(P,p0,p1,t0,t1,t,threshold) {
-	// interpolate ROI coordinates between two time points t0 and t1 at time t
+	/* Interpolate ROI coordinates between two time points t0 and t1 at time t
+	 *  
+	 *  P: matrix
+	 *  p0 : points (2,n)
+	 *  p1 : points (2,m)
+	 */
+	Array.print(P);
 	n = matcol(p0);
 	m = matcol(p1);
 	p = matzeros(2,n*m);
@@ -231,10 +244,11 @@ function interpolateROICoordinates(P,p0,p1,t0,t1,t,threshold) {
 		}
 	}
 	// crops the coordinate columns to [0-k]
-	pfinal = matzeros(2,k-1);
+	print("  interpolated points ", k - 1);
+	pfinal = matzeros(2, k - 1);
 	for (i = 0; i < k-1; i++) {
-		matset(pfinal,0,i,matget(p,0,i));
-		matset(pfinal,1,i,matget(p,1,i));
+		matset(pfinal, 0, i, matget(p,0,i));
+		matset(pfinal, 1, i, matget(p,1,i));
 	}
 	return pfinal;
 }
@@ -286,11 +300,13 @@ function getROIGroup(name) {
 	for (i = 0; i < rois.length; i++) {
 		ordered_rois[i] = rois[ranks[i]];
 	}
+	print("Found "+ordered_rois.length+" in group " + name);
 	return ordered_rois;
 }
 
 function preprocessROIs(names,colors) {
 	// assign groups to the ROI and interpolate the individual contours
+	print("Pre processing ROIs (rename and resample)");
 	for (i = 0; i < names.length; i++) {
 		names[i] = toLowerCase(names[i]);
 	}	
@@ -308,10 +324,14 @@ function preprocessROIs(names,colors) {
 			}
 		}
 		getPixelSize(unit, px, px);
-		ds = maxOf(2, getValue("Perim.") / px / 50);		
-		print(ds);
-		run("Interpolate", "interval="+ds+" smooth");
+		if (sampling > 0) {
+			ds = maxOf(3, getValue("Perim.") / px / 100);
+		} else {
+			ds = sampling;
+		}
+		print(" - curvilinear sampling step " + ds);
 		run("Fit Spline");
+//		run("Interpolate", "interval=5 smooth");
 		run("Interpolate", "interval="+ds+" smooth");
 		roiManager("update");
 	}
@@ -433,11 +453,14 @@ function sinkhorn_uniform(C,gamma) {
 
 function sinkhorn(C,p,q,gamma) {
 	/* Optimal transport 
-	 *  Parameters
-	 * X: cost [n,m] matrix (distance)
-	 * p : mass [m,1] vector (probability)
-	 * q : mass [m,1] vector (probability)
-	 * gamma : entropic regularization parameter
+	 *  
+	 * Parameters
+	 *  X: cost [n,m] matrix (distance)
+	 *  p : mass [m,1] vector (probability)
+	 *  q : mass [m,1] vector (probability)
+	 *  gamma : entropic regularization parameter
+	 * Returns
+	 *   P: association matrix
 	 * Note
 	 * - p and q will be normalized by their sum and reshaped as column vector
 	 * - if gamma < 0, gamma is set to 10/min(C) 
@@ -456,8 +479,11 @@ function sinkhorn(C,p,q,gamma) {
 	// compute a default gamma value from C
 	if (gamma < 0) {
 		minc = C[2];
-		for (i = 3; i < C.length; i++) {minc = minOf(minc, C[i]);}		
-		gamma = 10*minc;
+		for (i = 3; i < C.length; i++) {
+			minc = minOf(minc, C[i]);
+			meanc += C[i];
+		}
+		gamma = regularization * minc;
 		print("min c: "+minc+" gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
@@ -465,7 +491,8 @@ function sinkhorn(C,p,q,gamma) {
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {
 			cij = matget(C,i,j);
-			val = exp(-cij/gamma);
+			val = exp(- cij / gamma);
+			print(cij, gamma, val);
 			matset(xi,i,j,val);
 		}
 	}
@@ -474,7 +501,7 @@ function sinkhorn(C,p,q,gamma) {
 	// b = q ./ (x'*a)
 	xit = mattranspose(xi);
 	b = matones(m,1);
-	for (iter = 0; iter < 30; iter++) {
+	for (iter = 0; iter < 100; iter++) {
 		xib = matmul(xi,b);
 		a = mat_div(p,xib);
 		xita = matmul(xit,a);
@@ -485,7 +512,12 @@ function sinkhorn(C,p,q,gamma) {
 	b = matdiag(b);
 	P = matmul(xi, b);
 	P = matmul(a, P);
-	
+	print(matsum(P,-1));
+	if (isNaN(matsum(P,-1))) {
+		print("regularization is too low");
+	}
+	mat2img(P, "P");
+	exit();
 	return P;
 }
 
