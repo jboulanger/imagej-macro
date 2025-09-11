@@ -2,8 +2,8 @@
 #@String(label="ROI names", description="list the name of the ROI, separated by comas, the order will define the ROI group index", value="cell,foci") roi_names_csv
 #@String(label="ROI colors", description="list the colors for the ROI, separated by comas", value="red,green") roi_colors_csv
 #@String(label="Measurment", choices={"RawIntDen","Mean","Area"}, style="list") measurement
-#@Float(label="Sampling", description="curviliear samping", values=5) sampling
-#@Float(label="Regularization", description="regularization factor", values=100) regularization
+#@Float(label="Sampling", description="curviliear samping", value=5) sampling
+#@Float(label="Regularization", description="regularization factor", value=100) regularization
 
 /*
  * ROI Morphing and intensity measurment
@@ -188,7 +188,7 @@ function addIntermediateROIs(id1, id2) {
 	
 	D = pairwiseDistance(p1, p2);
 	P = sinkhorn_uniform(D, -1);	
-	threshold = 0.5 * matmax(P, -1);
+	threshold = 0.75 * matmax(P, -1);
 	print("Interpolation of roi:" +id1+"[t:"+t1+"] and roi:"+id2+" [t:"+t2+"]");
 	// store the new rois in an array
 	rois = newArray(t2 - t1 - 1);
@@ -225,26 +225,25 @@ function interpolateROICoordinates(P,p0,p1,t0,t1,t,threshold) {
 	 *  P: matrix
 	 *  p0 : points (2,n)
 	 *  p1 : points (2,m)
-	 */
-	Array.print(P);
+	 */	
 	n = matcol(p0);
 	m = matcol(p1);
 	p = matzeros(2,n*m);
 	dt = (t-t0) / (t1-t0-1);
 	// this make the deformation more progressive at the begining and the end
-	s = 3 * dt * dt - 2 * dt * dt * dt;		
+	s = 3 * dt * dt - 2 * dt * dt * dt;
 	k = 0;
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < m; j++) {			
-			if (matget(P,i,j) > threshold) {
-				matset(p,0,k,(1-s) * matget(p0,0,i) + s * matget(p1,0,j));
-				matset(p,1,k,(1-s) * matget(p0,1,i) + s * matget(p1,1,j));			
+			if (matget(P,i,j) > threshold) {				
+				matset(p, 0, k, (1-s) * matget(p0,0,i) + s * matget(p1,0,j));
+				matset(p, 1, k, (1-s) * matget(p0,1,i) + s * matget(p1,1,j));			
 				k = k + 1;
 			}
 		}
 	}
 	// crops the coordinate columns to [0-k]
-	print("  interpolated points ", k - 1);
+	// print("  interpolated points ", k - 1);
 	pfinal = matzeros(2, k - 1);
 	for (i = 0; i < k-1; i++) {
 		matset(pfinal, 0, i, matget(p,0,i));
@@ -300,7 +299,7 @@ function getROIGroup(name) {
 	for (i = 0; i < rois.length; i++) {
 		ordered_rois[i] = rois[ranks[i]];
 	}
-	print("Found "+ordered_rois.length+" in group " + name);
+	print("Found "+ordered_rois.length+"instance of ROI " + name);
 	return ordered_rois;
 }
 
@@ -324,14 +323,14 @@ function preprocessROIs(names,colors) {
 			}
 		}
 		getPixelSize(unit, px, px);
-		if (sampling > 0) {
+		if (sampling >= 0) {
 			ds = maxOf(3, getValue("Perim.") / px / 100);
 		} else {
 			ds = sampling;
 		}
 		print(" - curvilinear sampling step " + ds);
+		run("Interpolate", "interval="+ds+" smooth");
 		run("Fit Spline");
-//		run("Interpolate", "interval=5 smooth");
 		run("Interpolate", "interval="+ds+" smooth");
 		roiManager("update");
 	}
@@ -342,8 +341,8 @@ function createTest() {
 	run("Roi Defaults...", "color=green stroke=1 group=1 name=cell");
 	run("Roi Defaults...", "color=red stroke=1 group=2 name=foci");
 	if (isOpen("ROI Manager")) {selectWindow("ROI Manager");run("Close");}
-	width = 400;
-	height = 400;
+	width = 800;
+	height = 800;
 	channels = 3;
 	frames = 16;
 	newImage("Test Image", "8-bit white", width, height, channels, 1, 2);
@@ -390,8 +389,8 @@ function createTest() {
 	xpts = newArray(10);
 	ypts = newArray(10);
 	for (k = 0; k < 10; k++) {
-		xpts[k] = getWidth*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*cos(2*PI*k/10));
-		ypts[k] = getHeight*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*sin(2*PI*k/10));
+		xpts[k] = getWidth*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*cos(2*PI*k/10+1));
+		ypts[k] = getHeight*(0.5+(0.4*(k%2==0)+0.2*((k+1)%2==0))*sin(2*PI*k/10+1));
 	}
 	makeSelection("polygon",xpts,ypts);
 	run("Interpolate", "interval=2 smooth");
@@ -479,12 +478,16 @@ function sinkhorn(C,p,q,gamma) {
 	// compute a default gamma value from C
 	if (gamma < 0) {
 		minc = C[2];
+		maxc = C[2];
+		meanc = 0;
 		for (i = 3; i < C.length; i++) {
 			minc = minOf(minc, C[i]);
+			maxc = maxOf(maxc, C[i]);
 			meanc += C[i];
 		}
-		gamma = regularization * minc;
-		print("min c: "+minc+" gamma = "+gamma);
+		meanc /= (n*m);
+		gamma = log(minc) * regularization;
+		print("min:"+minc+", max:"+maxc+", mean:"+meanc+", gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)
 	xi = matzeros(n,m);	
@@ -492,7 +495,6 @@ function sinkhorn(C,p,q,gamma) {
 		for (j = 0; j < m; j++) {
 			cij = matget(C,i,j);
 			val = exp(- cij / gamma);
-			print(cij, gamma, val);
 			matset(xi,i,j,val);
 		}
 	}
@@ -512,14 +514,94 @@ function sinkhorn(C,p,q,gamma) {
 	b = matdiag(b);
 	P = matmul(xi, b);
 	P = matmul(a, P);
-	print(matsum(P,-1));
+	// print(matsum(P,-1));
 	if (isNaN(matsum(P,-1))) {
-		print("regularization is too low");
+		exit("Regularization ("+regularization+") is too low");
 	}
-	mat2img(P, "P");
+	 mat2img(P, "P");
 	exit();
 	return P;
 }
+
+function sinkhorn_annealed(C,p,q,gamma) {
+	/* Optimal transport with regularization parameters annealing
+	 *  
+	 * Parameters
+	 *  X: cost [n,m] matrix (distance)
+	 *  p : mass [m,1] vector (probability)
+	 *  q : mass [m,1] vector (probability)
+	 *  gamma : entropic regularization parameter
+	 * Returns
+	 *   P: association matrix
+	 * Note
+	 * - p and q will be normalized by their sum and reshaped as column vector
+	 * - if gamma < 0, gamma is set to 10/min(C) 
+	 * 
+	 */
+	n = matrow(C);
+	m = matcol(C);
+	assert((matsize(p) == n), "Size of C ["+n+"x"+m+"] and p ["+matsize(p)+"] do not match");
+	assert((matsize(q) == m), "Size of C ["+n+"x"+m+"] and p ["+matsize(q)+"] do not match");
+	p = matreshape(p,n,1);
+	q = matreshape(q,m,1);
+	// normalize p and q
+	p = mat_normalize_sum(p);
+	q = mat_normalize_sum(q);
+	
+	// compute a default gamma value from C
+	if (gamma < 0) {
+		minc = C[2];
+		maxc = C[2];
+		meanc = 0;
+		for (i = 3; i < C.length; i++) {
+			minc = minOf(minc, C[i]);
+			maxc = maxOf(maxc, C[i]);
+			meanc += C[i];
+		}
+		meanc /= (n*m);
+		gamma = log(minc) * regularization;
+		print("min:"+minc+", max:"+maxc+", mean:"+meanc+", gamma = "+gamma);
+	}
+	
+	b = matones(m,1);
+	for (annealing = 0; annealing < 10; ammealing++) {
+		// compute xi = exp(-C/gamma)
+		gamma = gamma / 2;
+		xi = matzeros(n,m);	
+		for (i = 0; i < n; i++) {
+			for (j = 0; j < m; j++) {
+				cij = matget(C,i,j);
+				val = exp(- cij / gamma);
+				matset(xi,i,j,val);
+			}
+		}
+		// iterativerly evaluate
+		// a = p ./ (xi*b)
+		// b = q ./ (x'*a)
+		xit = mattranspose(xi);
+		
+		for (iter = 0; iter < 100; iter++) {
+			xib = matmul(xi,b);
+			a = mat_div(p,xib);
+			xita = matmul(xit,a);
+			b = mat_div(q,xita);
+		}
+	}
+	// P = diag(a)*xi*diag(b)
+	a = matdiag(a);
+	b = matdiag(b);
+	P = matmul(xi, b);
+	P = matmul(a, P);
+	// print(matsum(P,-1));
+	if (isNaN(matsum(P,-1))) {
+		exit("Regularization ("+regularization+") is too low");
+	}
+	 mat2img(P, "P");
+	exit();
+	return P;
+}
+
+
 
 function mat_normalize_sum(A) {
 	// normalize A by the sum over all indices
