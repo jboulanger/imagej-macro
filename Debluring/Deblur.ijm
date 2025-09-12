@@ -54,7 +54,7 @@ function deblur(method, background, lateral, axial, zoom, iterations, smoothness
 			run("Size...", "width="+zoom * width+" height="+zoom * height+" constrain average interpolation=Bilinear");
 		}
 	}
-	run("Min...", "value=0.001");
+	run("Min...", "value=0.1");
 	u = getImageID();
 	for (iter = 0; iter < iterations; iter++) {	
 		showProgress(iter, iterations);

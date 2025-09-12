@@ -2,8 +2,8 @@
 #@String(label="ROI names", description="list the name of the ROI, separated by comas, the order will define the ROI group index", value="cell,foci") roi_names_csv
 #@String(label="ROI colors", description="list the colors for the ROI, separated by comas", value="red,green") roi_colors_csv
 #@String(label="Measurment", choices={"RawIntDen","Mean","Area"}, style="list") measurement
-#@Float(label="Sampling", description="curviliear samping", value=5) sampling
-#@Float(label="Regularization", description="regularization factor", value=100) regularization
+#@Float(label="Sampling", description="curviliear samping in pixels", value=5) sampling
+#@Float(label="Regularization", description="regularization factor (starting value ~100)", value=100) regularization
 
 /*
  * ROI Morphing and intensity measurment
@@ -518,8 +518,6 @@ function sinkhorn(C,p,q,gamma) {
 	if (isNaN(matsum(P,-1))) {
 		exit("Regularization ("+regularization+") is too low");
 	}
-	 mat2img(P, "P");
-	exit();
 	return P;
 }
 
@@ -538,6 +536,7 @@ function sinkhorn_annealed(C,p,q,gamma) {
 	 * - if gamma < 0, gamma is set to 10/min(C) 
 	 * 
 	 */
+	 
 	n = matrow(C);
 	m = matcol(C);
 	assert((matsize(p) == n), "Size of C ["+n+"x"+m+"] and p ["+matsize(p)+"] do not match");
