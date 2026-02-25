@@ -25,6 +25,8 @@ if (nImages==0) {
 	testmode=false;
 }
 
+setBatchMode("hide");
+
 channel_names = parseCSVString(channel_names_csv);
 roi_names = parseCSVString(roi_names_csv);
 roi_colors = parseCSVString(roi_colors_csv);
@@ -34,7 +36,6 @@ initTable(tbl, roi_names, channel_names);
 
 Overlay.remove();
 id = getImageID();
-
 preprocessROIs(roi_names, roi_colors);
 
 bloombloom(tbl, roi_names, channel_names, measurement);
@@ -47,6 +48,8 @@ if (testmode) {
 
 end_time = getTime();
 print("Elapsed time " + (end_time - start_time)/1000 + "s");
+
+setBatchMode("show");
 
 function createMontage() {
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -76,7 +79,7 @@ function bloombloom(tbl, roi_names, channel_names, measurement) {
 	for (i = 0; i < roi_names.length; i++) {
 		rois0 = getROIGroup(roi_names[i]);
 		rois1 = addIntermediateROIsForGroup(rois0);	
-		measure(tbl, rois1, roi_names[i], channel_names,measurement);
+		measure(tbl, rois1, roi_names[i], channel_names, measurement);
 	}
 }
 
@@ -188,7 +191,7 @@ function addIntermediateROIs(id1, id2) {
 	
 	D = pairwiseDistance(p1, p2);
 	P = sinkhorn_uniform(D, -1);	
-	threshold = 0.75 * matmax(P, -1);
+	threshold = 0.5 * matmax(P, -1);
 	print("Interpolation of roi:" +id1+"[t:"+t1+"] and roi:"+id2+" [t:"+t2+"]");
 	// store the new rois in an array
 	rois = newArray(t2 - t1 - 1);
@@ -208,9 +211,15 @@ function addROIfromCoordinates(p,t,name,color) {
 		x[i] = matget(p,0,i);
 		y[i] = matget(p,1,i);
 	}	
-	makeSelection(3, x, y);		
+	makeSelection(3, x, y);
+	if (sampling <= 0) {
+		getPixelSize(unit, px, py);
+		ds = maxOf(3, getValue("Perim.") / px / 50);
+	} else {
+		ds = sampling;
+	}
 	run("Fit Spline");
-	run("Interpolate", "interval="+sampling+" smooth");
+	run("Interpolate", "interval="+ds+" smooth adjust");
 	Roi.setName(name);	
 	Roi.setStrokeColor(color);
 	Roi.setPosition(0, 0, t);
@@ -323,15 +332,17 @@ function preprocessROIs(names,colors) {
 			}
 		}
 		getPixelSize(unit, px, px);
-		if (sampling >= 0) {
-			ds = maxOf(3, getValue("Perim.") / px / 100);
+		if (sampling <= 0) {
+			ds = maxOf(3, getValue("Perim.") / px / 50);
 		} else {
 			ds = sampling;
 		}
 		print(" - curvilinear sampling step " + ds);
-		run("Interpolate", "interval="+ds+" smooth");
+		if (Roi.getType != "polygon") {
+			run("Interpolate", "interval="+ds+" smooth adjust");
+		}
 		run("Fit Spline");
-		run("Interpolate", "interval="+ds+" smooth");
+		run("Interpolate", "interval="+ds+" smooth adjust");
 		roiManager("update");
 	}
 }
@@ -486,7 +497,7 @@ function sinkhorn(C,p,q,gamma) {
 			meanc += C[i];
 		}
 		meanc /= (n*m);
-		gamma = log(minc) * regularization;
+		gamma = regularization;
 		print("min:"+minc+", max:"+maxc+", mean:"+meanc+", gamma = "+gamma);
 	}
 	// compute xi = exp(-C/gamma)

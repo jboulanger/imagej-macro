@@ -1,16 +1,15 @@
 #@File(label="Input file") input_path
 #@Integer(label="Mitochondria channel",value=1) channel_mito
 #@Integer(label="ER channel",value=2) channel_er
-#@File(label="Mito classifier") class_mito
-#@File(label="ER classifier") class_er
 #@Boolean(label="Save masks",value=True) save_masks
 
 /*
  * Segment and compute overlap of masks and distance between masks
  * 
  * Open a single z stack
+#@File(label="ER classifier") class_er
+#@File(label="Mito classifier") class_mito
  */
-
 
 function subtract_background(id, radius_um) {
 	selectImage(id);
@@ -60,6 +59,7 @@ function segment_labkit(id, channel, classifier_path) {
 	print("Segmenting channel " + channel + " with "+ classifier_path);
 	selectImage(id);
 	run("Duplicate...", "title=C"+channel+" duplicate channels=" + channel);
+	id0 = getImageID();
 	run("Segment Image With Labkit", "input=[C"+channel+"] segmenter_file="+classifier_path+" use_gpu=false");
 	print(getTitle);
 	wait(100);
@@ -70,6 +70,7 @@ function segment_labkit(id, channel, classifier_path) {
 	setThreshold(1, 1);
 	run("Make Binary", "background=Dark");
 	id2 = getImageID();
+	selectImage(id0); close();
 	selectImage(id1); close();
 	return id2;
 }
@@ -88,14 +89,14 @@ run("Bio-Formats Importer", "open=["+input_path+"] autoscale color_mode=Default 
 run("Select None");
 original = getImageID();
 
-// mask_mito = segment_channel(original, channel_mito);
-mask_mito = segment_labkit(original, channel_mito, class_mito);
+mask_mito = segment_channel(original, channel_mito);
+//mask_mito = segment_labkit(original, channel_mito, class_mito);
 title_mito = getTitle();
 run("Distance Transform 3D");
 distance_mito = getImageID();
 
-// mask_er = segment_channel(original, channel_er);
-mask_er = segment_labkit(original, channel_er, class_er);
+mask_er = segment_channel(original, channel_er);
+//mask_er = segment_labkit(original, channel_er, class_er);
 title_er = getTitle();
 run("Distance Transform 3D");
 distance_er = getImageID();
@@ -109,13 +110,14 @@ imageCalculator("Multiply stack", distance_er, mask_mito);
 selectImage(distance_er);
 Stack.getStatistics(voxelCount, mean_distance_mito_er, min, max, stdDev);
 mean_distance_mito_er /= 255;
+close();
 
 // compute the distance from er to mito
 imageCalculator("Multiply stack", distance_mito, mask_er);
 selectImage(distance_mito);
 Stack.getStatistics(voxelCount, mean_distance_er_mito, min, max, stdDev);
 mean_distance_er_mito /= 255;
-
+close();
 
 row = nResults;
 volume_mito = getVolumeMask(mask_mito);
