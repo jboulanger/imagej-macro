@@ -20,34 +20,45 @@
  * Jerome for Leonor 2023
  */
 
+
  if (matches(mode, "Run")) {
  	runAnalysis();
  } else if (matches(mode, "Check")) {
  	checkPositive();
  }
- 
+
+
+
+function getTimeString() {
+	MonthNames = newArray("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
+	DayNames = newArray("Sun", "Mon","Tue","Wed","Thu","Fri","Sat");
+    getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+    TimeString ="Date: "+DayNames[dayOfWeek]+" ";
+    if (dayOfMonth<10) {TimeString = TimeString+"0";}
+    TimeString = TimeString+dayOfMonth+"-"+MonthNames[month]+"-"+year+"\nTime: ";
+    if (hour<10) {TimeString = TimeString+"0";}
+    TimeString = TimeString+hour+":";
+    if (minute<10) {TimeString = TimeString+"0";}
+    TimeString = TimeString+minute+":";
+    if (second<10) {TimeString = TimeString+"0";}
+    TimeString = TimeString+second;
+}
  
 function checkPositive() {
 	/*
-	 * Draw as an overlay positive reference cells
-	 * 
+	 * draw the reference cells if positive
 	 */
-	
 	run("Close All");
-	
 	references =  parseCSVString(references_str);
 	setBatchMode("hide");
- 	
  	// load the image
  	open(filename);
- 	
  	// load the table
  	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-results-table.csv";
  	open(ofile);
  	tbl1 = Table.title;
  	x = Table.getColumn("Positive ["+references[0]+"]");
  	ind = Table.getColumn("ROI Index");
- 	
  	// load the ROIs
  	ofile = File.getDirectory(filename) + File.getNameWithoutExtension(filename) + "-rois.zip";
  	roiManager("open", ofile); 	
@@ -73,17 +84,13 @@ function checkPositive() {
 }
 
 function runAnalysis() {
-	/*
-	 * Segment the image and compute the distances between markers
-	 * 
-	 */
-	 
 	do_pcc=false; // do pearson correlation coefficient?
 	
 	start_time = getTime();
 	print("\\Clear");
 	run("Close All");
-	open(filename);
+	//open(filename);
+	run("TIFF Virtual Stack...", "open=["+filename+"]");
 	Overlay.remove();
 	getPixelSize(pixel_unit, pixel_size, pixel_size);
 	tbl1 = "Measure per ROI.csv";
@@ -106,6 +113,24 @@ function runAnalysis() {
 	print("Reference channels: " + array2csv(references));
 	print("Combined channels: " + array2csv(codes));
 	
+	roifile = File.getDirectory(filename) + File.separator +  File.getNameWithoutExtension(filename) + ".roi";
+	print("Looking for roi file");
+	print(roifile);
+	if (File.exists(roifile)) {
+		print("Found roi file ", roifile);		
+		/*
+		roiManager("open", roifile);
+		roiManager("select",0);
+		roiManager("delete");
+		run("Restore Selection");
+		*/
+		open(roifile);
+		print(getValue("Width"),"x",getValue("Height"),"um");
+	} else {
+		print("Cound not find roi file ", roifile);
+		exit();
+	}
+	
 	cropActiveSelection();
 	
 	// segment cells based on nuclei
@@ -113,7 +138,7 @@ function runAnalysis() {
 	amax = getValue("Area");
 	labels = segmentNuclei(id, channel_nuclei, 100, amax);
 	
-	rois = createROIfromLabels(labels); 	
+	rois = createROIfromLabels(labels);
 	
 	// segment positive cells
 	//masks = mapPostiveROIs(id, rois);
@@ -187,60 +212,6 @@ function analyzeDistances() {
 }
 */
 
-
-
-function computeRingArea(rois, radius, thickness, domain) {
-	/*
-	 * Compute the area of the ring or given radius and thickness
-	 * included in the domain.
-	 * 
-	 * rois : array of roi indices
-	 * radius : array of radiuses for each ring around each roi
-	 * thickness : scalar thickness of the rings
-	 * domain : index of the ROI serving as domain
-	 * 
-	 * return the array of areas for each roi
-	 */
-	n = roiManager("count");
-	C = newArray(rois.length);
-	
-	for (i = 0; i < rois.length; i++) {				
-		
-		roiManager("select", rois[i]);
-		
-		// create a band ROI and add it to the ROI manager	
-		run("Enlarge...", "enlarge=" + radius[i]);	
-		roiManager("add"); // n
-		a = roiManager("count")-1;
-			
-		run("Enlarge...", "enlarge="+thickness);		
-		roiManager("add"); // n + 1
-		b = roiManager("count")-1;	
-			
-		roiManager("select", newArray(n,n+1));
-		roiManager("XOR");
-		roiManager("add"); // n + 2	
-		c = roiManager("count")-1;	
-				
-		// compute the intersection with the reference ROI 0	
-		roiManager("select", newArray(domain, n+2));
-		roiManager("AND");
-		Roi.setFillColor("green");
-		run("Add Selection...");
-			
-		C[i] = getValue("Area");	
-		
-		// remove the teporary ROIs	
-		roiManager("Deselect");
-		for (k = n + 2; k >= n; k--) {		
-			roiManager("select", k);		
-			roiManager("delete");		
-		}
-	}
-	return C;
-}
-
-
 function array2csv(array) {
 	/*
 	 * onvert an array to comma separated string
@@ -277,20 +248,24 @@ function segmentNuclei(id, channel, min_area, max_area) {
 
  	print("Creating  a mask [ mem:" + round(IJ.currentMemory()/1e6)+"MB]"); 	 
  	mask = createBackgroundMask(id, 10); 	 	
- 	 	 	
- 	print("Running StarDist [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
+ 	print("Preprocess image [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
  	run("Select None");
  	selectImage(id);
  	run("Duplicate...", "title=dapi duplicate channels="+channel);
-	run("32-bit");
+	//run("32-bit");
  	nuc = getImageID();
-	run("Square Root");
-	run("Minimum...", "radius=5");
-	run("Maximum...", "radius=5");
+	//run("Square Root");
+//	run("Minimum...", "radius=1");
+//	run("Maximum...", "radius=1");
 	run("Enhance Contrast", "saturated=0.35");
-	run("Subtract Background...", "rolling=50 stack");
+	run("Subtract Background...", "rolling=10");
+ 	print("Running StarDist [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
+	//run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'Image_01_20x_DAPI_ FITC_ Cy3_ Cy5_01-res3ROI-1.tif', 'modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'5.0', 'percentileTop':'95.0', 'probThresh':'0.1', 'nmsThresh':'0.2', 'outputType':'ROI Manager', 'nTiles':'1', 'excludeBoundary':'2', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
 	run("Command From Macro", "command=[de.csbdresden.stardist.StarDist2D], args=['input':'dapi','modelChoice':'Versatile (fluorescent nuclei)', 'normalizeInput':'true', 'percentileBottom':'5.0', 'percentileTop':'95.0', 'probThresh':'0.2', 'nmsThresh':'0.1', 'outputType':'Label Image', 'nTiles':'25', 'excludeBoundary':'0', 'roiPosition':'Automatic', 'verbose':'false', 'showCsbdeepProgress':'false', 'showProbAndDist':'false'], process=[false]");
- 	selectImage("Label Image"); label = getImageID(); 	
+
+	print("Relabel");
+ 	selectImage("Label Image");
+ 	label = getImageID(); 	
 	run("Remap Labels");
 	
  	print("Running Watershed [ mem:" + round(IJ.currentMemory()/1e6)+"MB]"); 
@@ -391,9 +366,17 @@ function createROIfromLabels(id) {
 	 */
 	print("Creating ROIs [ mem:" + round(IJ.currentMemory()/1e6)+"MB]");
 	selectImage(id);	
+	run("Remap Labels");
 	nlabels = getValue("Max");	
  	print("  number of labels " + nlabels);
  	n0 = roiManager("count"); 	
+ 	run("Label Map to ROIs", "connectivity=C4 vertex_location=Corners name_pattern=nuclei-%03d");
+ 	n1 = roiManager("count");
+ 	rois = newArray(n1 - n0);
+ 	for (i = 0; i < rois.length; i++) {
+ 		rois[i] = n0 + i;
+ 	}
+ 	/*
  	n = 0;
  	rois = newArray(nlabels);
  	for (i = 0; i < nlabels; i++) {
@@ -413,7 +396,8 @@ function createROIfromLabels(id) {
  		resetThreshold();
  	}
  	rois = Array.trim(rois, n-1);
- 	print("  number of Rois " + rois.length);
+ 	*/
+ 	print("  number of rois created " + rois.length);
  	return rois;
 }
 
@@ -433,6 +417,10 @@ function measureInROI(tbl, id, rois, channel_names, do_pcc, pixel_unit) {
 	 selectImage(id);	 
 	 Stack.getDimensions(width, height, channels, slices, frames);
 	 
+	nrois = roiManager("count");
+	print("Number of roi in the roi manager", nrois);
+	Array.getStatistics(rois, min, max, mean, stdDev);
+	print("roi max index", max) ;
 	
  	selectImage(id);	
  	selectWindow(tbl1);
@@ -557,9 +545,28 @@ function measureROIdistanceToLabels(tbl, id, rois, channel_names, references, pi
 	run("Collect Garbage");	
 }
 
-function measureROIRing(tbl, rois, codes, references, pixel_size, pixel_unit) {
-	
+/*
+Table.create("A");
+n = roiManager("count");
+rois = Array.getSequence(n);
+recordPositiveROIs("A", getImageID, rois, newArray("a","b","c","d"));
+
+
+x = Table.getColumn("Positive [FITC]");
+v = Table.getColumn("ROI Index");
+k = 0;
+y = x;
+for (i = 0; i < x.length; i++) {
+	if (x[i] > 0) {
+		y[k] = v[i];
+		k++;
+	}	
 }
+print(k);
+y = Array.trim(y,k);
+roiManager("select", y);
+roiManager("Combine");
+*/
 
 
 function recordPositiveROIs(tbl, id, rois, channel_names) {
@@ -611,9 +618,9 @@ function mapPositiveLabels(id, labels) {
 	for (c = 1; c <= nchannels; c++) {		
 		selectImage(id);
 		run("Duplicate...", "title=tmp duplicate channels="+c);
-		run("Subtract Background...", "rolling=25 stack");
+		run("Subtract Background...", "rolling=50 stack");
 		run("Intensity Measurements 2D/3D", "input=tmp labels=["+labelsname+"] median mean");		
-		vals = Table.getColumn("Mean");
+		vals = Table.getColumn("Median");
 		Array.getStatistics(vals, min, max, mean, stdDev);
 		selectImage(labels);
 		call("inra.ijpb.plugins.LabelToValuePlugin.process", "Table=tmp-intensity-measurements", "Column=Median", "Min="+min, "Max="+max);
@@ -623,11 +630,22 @@ function mapPositiveLabels(id, labels) {
 		selectWindow("tmp"); close();
 	}
 	//print(str);
-	run("Merge Channels...", str +" create");	
+	run("Merge Channels...", str +" create");
 	rename("median");
 	run("Duplicate...", "title=positive duplicate");
-	run("Convert to Mask", "method=Otsu background=Dark calculate");
-	run("Select None");
+	Stack.getDimensions(width, height, nchannels, nslices, nframes);
+	for (c = 1; c <= nchannels; c++) {	
+		Stack.setChannel(c);
+		run("Select None");
+		setThreshold(1, getValue("Max"));
+		run("Create Selection");
+		threshold = getValue("Mean") + 2 * getValue("StdDev");
+		print(threshold);
+		run("Macro...", "code=v=255*(v>"+threshold+") slice");
+		run("Select None");
+	}
+	setThreshold(128, 255);
+	run("Convert to Mask", "method=Default background=Dark");
 	return getImageID();
 }
 
