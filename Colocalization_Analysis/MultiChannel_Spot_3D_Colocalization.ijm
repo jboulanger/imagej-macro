@@ -710,13 +710,43 @@ function refineLocalization(id, channel, coords) {
 	}
 }
 
+function filterOutMasks(id, size) {
+	/* Filter out regions that are too big or too small
+	 * 
+	 * Parameters
+	 *  id (int): thresholded image
+	 *  size (float): size/scale in micron
+	 *  
+	 * Returns
+	 *   id of the mask image with range in 0,1
+	 */
+	selectImage(id);
+	setThreshold(0.5, 1);
+	run("Make Binary", "background=Dark");
+	getVoxelSize(dx, dy, dz, unit);
+	max_vol = 200 * pow(size / dx, 3);
+	print("    size filtering:", max_vol, "pixels");
+	name = getTitle();
+	run("Distance Transform Watershed 3D", "distances=[Borgefors (3,4,5)] output=[16 bits] normalize dynamic=2 connectivity=6");
+	tmp1 = getImageID();
+	selectWindow(name+"dist-watershed");
+	run("Label Size Filtering", "operation=Lower_Than size="+max_vol);
+	selectWindow(name+"dist-watershed-sizeFilt");
+	new_id = getImageID();
+	run("32-bit");
+	run("Macro...", "code=v=(v>="+1+") stack");
+	selectImage(id);close();
+	selectImage(name+"dist-watershed"); close();
+	return new_id;
+}
+
 function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx, subpixel, mask_id, adaptive) {
 	/*
 	 * detect spots and return coordinates in physical units as an array
 	 *
 	 * Parameter
 	 *  channels_list (array)  : list of indices of the channel in the image stack
-	 *  size_list (array)
+	 *  size_list (array) : size
 	 *  pfa_list (array) : probability of false alarm in -log10
 	 *  channel_idx (int) : index of the channel in the array
 	 *  subpixel (boolean): use subpixel localization
@@ -759,6 +789,8 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 
 	// threshold
 	thresholdAuto(id1, pfa, adaptive);
+	
+	id1= filterOutMasks(id1, size);
 
 	// combine local max and threshold
 	imageCalculator("Multiply stack", id1, id3);
