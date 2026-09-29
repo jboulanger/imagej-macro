@@ -75,12 +75,14 @@ import java.util.*
 import net.imglib2.KDTree
 import net.imglib2.RealPoint
 import net.imglib2.algorithm.gauss3.Gauss3
+import net.imglib2.algorithm.derivative.Laplacian
 import net.imglib2.img.display.imagej.ImageJFunctions
 import net.imglib2.interpolation.randomaccess.NLinearInterpolatorFactory
 import net.imglib2.loops.LoopBuilder
 import net.imglib2.neighborsearch.RadiusNeighborSearchOnKDTree
 import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.view.Views
+
 
 // ============================================================================
 // I/O & PARSING HELPER FUNCTIONS
@@ -301,6 +303,20 @@ void dispose(ImagePlus imp) {
     imp.close()
 }
 
+/** Close all image windows **/
+void closeAllImages() {
+    int[] ids = WindowManager.getIDList()
+    if (ids != null) {
+        for (int id : ids) {
+            def imp = WindowManager.getImage(id)
+            if (imp != null) {
+                imp.changes = false
+                imp.close()
+            }
+        }
+    }
+}
+
 // ============================================================================
 // STATISTICAL ESTIMATORS & AUTOMATIC THRESHOLDING
 // ============================================================================
@@ -403,22 +419,37 @@ ImagePlus blobDOG(ImagePlus raw, boolean squareRoot, double size) {
     return id1
 }
 
-/** 3D Laplacian of Gaussian (LoG) filter via FeatureJ. */
 ImagePlus blobLOG(ImagePlus raw, boolean squareRoot, double size) {
-    double[] v = voxelSize(raw)
-    IJ.log("    scale: " + size + "um, [" + size / v[0] + "," + size / v[0] + "," + 2.5 * size / v[2] + "] px")
+    // 1. Prepare raw volume
     ImagePlus id1 = duplicateFloat(raw, "id1")
     if (squareRoot) sqrtInPlace(id1)
-    gaussian(id1, size / v[0], size / v[1], 2.5 * size / v[2])
 
-    id1.show()
-    IJ.run(id1, "FeatureJ Laplacian", "compute smoothing=0.75")
-    ImagePlus lap = resultImage("id1 Laplacian")
+    // 2. Wrap ImagePlus into ImgLib2 RandomAccessibleInterval
+    def img = ImageJFunctions.wrapReal(id1)
+    def blurred = img.factory().create(img)
+    def laplacianImg = img.factory().create(img)
+
+    // 3. Step 1: Gaussian smoothing (sigma = 0.75)
+    
+	double[] v = voxelSize(raw)
+    double[] sigmas = [size/v[0], size/v[1], size/v[2]] as double[]
+    Gauss3.gauss(sigmas, Views.extendBorder(img), blurred)
+    // 4. Step 2: 3D Discrete Laplacian (2nd derivatives)
+    Laplacian.calculate(Views.extendBorder(blurred), laplacianImg)
+
+    // 5. Invert sign to match spot detection conventions (bright spot = positive peak)
+    LoopBuilder.setImages(laplacianImg).forEachPixel { pix ->
+        pix.setReal(-pix.getRealDouble())
+    }
+
+    // 6. Convert back to ImagePlus
+    ImagePlus lap = ImageJFunctions.wrap(laplacianImg, "id1 Laplacian").duplicate()
+    
+    // Cleanup temporary resources
     dispose(id1)
-
-    scaleAll(lap, -1f)
-    lap.setTitle("id1")
+    lap.setCalibration(raw.getCalibration().copy())
     correctBorder(lap)
+    
     return lap
 }
 
@@ -939,7 +970,7 @@ void appendRecord(double[] agg, int[] sets, List channels, String feat,
 
 /** Synthesizes synthetic 3D hyperstack with ground truth spot distributions and Gaussian noise. */
 ImagePlus generateTestImage(List channels, String recordName) {
-    IJ.run("Close All")
+   	closeAllImages()
     int w = 200, h = 200, d = 100, n = 100, b = 10
     int c = channels.size()
     IJ.log("Generating " + n + " candidate locations...")
@@ -1169,7 +1200,7 @@ void runColocalization() {
     long t1 = System.currentTimeMillis()
     System.gc()
     IJ.log("Finished in " + (t1 - t0) / 1000.0 + " seconds.")
-    if (closeOnExit) IJ.run("Close All")
+    if (closeOnExit) closeAllImages()
 }
 
 // Execute pipeline
