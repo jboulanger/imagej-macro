@@ -1,6 +1,7 @@
 // @File(label="Input",description="Use 'image' to run on current image or 'test' to run on a generated test image",value="image") path
 // @String(label="Channels", value="1,2,3",description="comma separated list of channels indices") channels_str
 // @String(label="Spot Size", value="0.5,0.5,0.5",description="comma separated list of spot size in microns") spot_size_str
+// @String(label="Max Spot Size", value="1,1,1",description="comma separated list of spot size in microns, -1 is not filtering") max_spot_size_str
 // @String(label="Feature", choices={"DoG","LoG","Top hat"}) feature
 // @String(label="Specificity[-log10]", value="3,3,3",description="comma separated list of specificity (>0)") specificity_str
 // @Boolean(label="Adaptive threshold", value=true, description="use image stats to define the threshold otherwise specificity defines directly the threshold") adaptive
@@ -450,7 +451,7 @@ function blobDOG(channel, square_root, size) {
 	sigma1 = size;
 	sigma2 = 3 * size;
 	print("    scale: " + size + "um, [" + sigma1/dx + ","+ sigma1/dx+ ","+ 2.5*sigma1/dz+"] px");
-	run("Duplicate...", "title=id1 duplicate channels="+channel);
+	run("Duplicate...", "title=blob duplicate channels="+channel);
 	run("32-bit");
 	id1 = getImageID();
 	if (square_root) {
@@ -463,6 +464,7 @@ function blobDOG(channel, square_root, size) {
 	run("Gaussian Blur 3D...", "x="+sigma2/dx+" y="+sigma2/dy+" z="+2.5*sigma2/dz);
 	imageCalculator("Subtract 32-bit stack",id1,id2);
 	selectImage(id2);close();
+	//selectWindow("blob");
 	selectImage(id1);
 	//run("Top Hat...", "radius=10 stack");
 
@@ -471,6 +473,7 @@ function blobDOG(channel, square_root, size) {
 	run("Multiply...", "value=0.5");
 	Stack.setSlice(nSlices);
 	run("Multiply...", "value=0.5");
+	//print(getTitle());
 	return id1;
 }
 
@@ -655,7 +658,7 @@ function thresholdAuto(id, pfa, adaptive_threshold) {
 }
 
 function localizeSpots(id, channel_idx) {
-	/* localize spots and return coordinates as a (n,4) array */
+	/* Localize spots and return coordinates as a (n,4) array wit C,X,Y,Z coordinates.*/
 	
 	selectImage(id);
 	
@@ -710,7 +713,27 @@ function refineLocalization(id, channel, coords) {
 	}
 }
 
-function filterOutMasks(id, size) {
+function getNumberOfLabels(id) {
+	/* Count the number of unique labels.*/
+	selectImage(id);
+	title = getTitle();
+	Stack.getStatistics(voxelCount, mean, min, max, stdDev);
+	if (max==0) {
+		return 0;
+	}
+	run("Analyze Regions 3D", "voxel_count surface_area_method=[Crofton (13 dirs.)] euler_connectivity=6");
+	
+	morph_title = title + "-morpho";
+	selectWindow(morph_title);
+	lbl_idx = Table.getColumn("Label");
+	num_idx = lbl_idx.length;
+	selectWindow(morph_title);
+	run("Close");
+	return num_idx;
+}
+
+
+function filterOutMasks(input_id, marker_id, max_size) {
 	/* Filter out regions that are too big or too small
 	 * 
 	 * Parameters
@@ -720,29 +743,72 @@ function filterOutMasks(id, size) {
 	 * Returns
 	 *   id of the mask image with range in 0,1
 	 */
-	selectImage(id);
+
+	imageCalculator("Multiply stack", marker_id, input_id);
+	selectImage(input_id);
+	input_name = getTitle();
+	print("input for filtering: "+input_name);
+	
 	setThreshold(0.5, 1);
 	run("Make Binary", "background=Dark");
 	getVoxelSize(dx, dy, dz, unit);
-	max_vol = 200 * pow(size / dx, 3);
-	print("    size filtering:", max_vol, "pixels");
-	name = getTitle();
-	run("Distance Transform Watershed 3D", "distances=[Borgefors (3,4,5)] output=[16 bits] normalize dynamic=2 connectivity=6");
-	tmp1 = getImageID();
-	selectWindow(name+"dist-watershed");
-	run("Label Size Filtering", "operation=Lower_Than size="+max_vol);
-	selectWindow(name+"dist-watershed-sizeFilt");
-	new_id = getImageID();
+	max_vol = 4/3 * PI * (max_size / dx)*(max_size / dy)*(max_size / dz);
+	//print(size, dx, size / dx, max_vol);
+	print("    size filtering:", max_size, "um radius /", max_vol, "voxels volume");
+	
+	// connected componenent labeling of the marker image
+	selectImage(marker_id);
+	marker_name =  getTitle();
+	run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+	marker_title = marker_name + "-lbl";
+	print("    marker title: " + marker_title);
+	selectWindow(marker_title);
+	marker_id = getImageID();
+	
+	// euclidean distance map
+	selectImage(input_id);
+	run("Euclidean Distance Map", " ");
+	dist_title = input_name + "-dist";
+	selectWindow(dist_title);
+	run("Invert", "stack");
+	dist_id = getImageID();
+	
+	// watershed 
+	run("Marker-controlled Watershed", "input=["+dist_title+"] marker="+marker_title+" mask=None compactness=0 binary use");
+	water_title =  dist_title + "-watershed";
+	selectWindow(water_title);
+	water_id = getImageID();
+	imageCalculator("Multiply stack", water_id, id1);
+
+	nlbl = getNumberOfLabels(water_id);
+	print("    number of label in the image before filtering:", nlbl);
+	
+	// Filter label by size
+	selectImage(water_id);
+	run("Label Size Filtering", "operation=Lower_Than size=" + max_vol);
+	water_flt_title = water_title + "-sizeFilt";
+	selectWindow(water_flt_title);
+	water_flt_id = getImageID();
+	
+	nwaterlblflt = getNumberOfLabels(water_flt_id);
+	print("    number of label in the image after filtering:", nwaterlblflt);
+	
+	// Convert the result to 32 bit, binary image
+	selectImage(water_flt_id);
 	run("32-bit");
 	run("Macro...", "code=v=(v>="+1+") stack");
-	selectImage(id);close();
-	selectImage(name+"dist-watershed"); close();
-	return new_id;
+	//setBatchMode("exit and display");exit();
+	selectImage(input_id); close();
+	selectImage(water_id); close();
+	selectImage(marker_id); close();
+	selectImage(dist_id); close();
+	selectImage(water_flt_id); rename("id1");
+	return water_flt_id;
 }
 
-function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx, subpixel, mask_id, adaptive) {
+function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx, subpixel, mask_id, adaptive, max_size_list) {
 	/*
-	 * detect spots and return coordinates in physical units as an array
+	 * Detect spots and return coordinates in physical units as an array
 	 *
 	 * Parameter
 	 *  channels_list (array)  : list of indices of the channel in the image stack
@@ -760,12 +826,14 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 	channel = channels_list[channel_idx];
 	size = size_list[channel_idx];
 	pfa = pfa_list[channel_idx];
+	max_size = max_size_list[channel_idx];
 
 	print(" - detect spots in channel " + channel);
 
 	run("Select None");
 
 	id0 = getImageID;
+	// print(getTitle());
 
 	// compute a difference of Gaussian
 	if (feature == "DOG") {
@@ -778,26 +846,35 @@ function detect3DSpots(channels_list, feature, size_list, pfa_list, channel_idx,
 		run("Duplicate...", "title=id1 duplicate channels="+channel);
 		id1 = getImageID();
 	}
+	selectImage(id1);
+	//print(getTitle());
 
-	// local maxima
+	// Compute local maxima
 	id3 = localMaxima3D(id1, size);
 
-	// combine result with mask
+	// Combine result with mask
 	if (mask_id < 0) {
 		imageCalculator("Multiply stack", id3, mask_id);
 	}
 
-	// threshold
+	// Threshold
 	thresholdAuto(id1, pfa, adaptive);
 	
-	id1= filterOutMasks(id1, size);
-
-	// combine local max and threshold
+	// Filter out region that are too large
+	if (max_size > 0) {
+		id1 = filterOutMasks(id1, id3, max_size);
+	}
+	
+	// Combine local max and threshold
 	imageCalculator("Multiply stack", id1, id3);
 	selectImage(id3); close();
 
+	// Localize the spot
+	print("   localize spots");
 	coords = localizeSpots(id1, channel_idx);
 
+	// Get a subpixel localization
+	print("   refine spots");
 	refineLocalization(id1, channel, coords);
 
 	selectImage(id1); close();
@@ -855,13 +932,13 @@ function loadCoordsTable(path, channels) {
 	return coords;
 }
 
-function detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive) {
+function detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive, max_size) {
 	setBatchMode("hide");
 	selectImage(id);
 	print("Detect 3D spots in image " + getTitle);
 	coords = newArray(0);
 	for (idx = 0; idx < channels.length; idx++) {
-		current_coords = detect3DSpots(channels, feature, spot_size, specificity, idx, subpixel, mask_channel, adaptive);
+		current_coords = detect3DSpots(channels, feature, spot_size, specificity, idx, subpixel, mask_channel, adaptive, max_size);
 		coords = Array.concat(coords, current_coords);
 	}
 	setBatchMode("exit and display");
@@ -869,14 +946,14 @@ function detectSpotsInAllChannels(id, channels, feature, specificity, spot_size,
 }
 
 
-function loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive) {
+function loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive, max_size) {
 	/* Load points data and set the basename */
 	if (mode==1) {
 		print("Test image");
 		generateTestImage(channels);
 		id = getImageID();
 		basename = "test image";
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_channel, adaptive, max_size);
 		//if (isOpen(basename+"-points.csv")) {selectWindow(basename+"-points.csv");run("Close");}
 		//coords2Table(basename+"-points.csv", coords, channels, spot_size);
 	} else if (mode==2) {
@@ -884,7 +961,7 @@ function loadData(mode, channels, feature, specificity, spot_size, mask_channel,
 		basename = File.getNameWithoutExtension(getTitle);
 		id = getImageID();
 		mask_id = getMask(mask_channel);
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive, max_size);
 		if (mask_id < 0) {
 			selectImage(mask_id); close();
 		}
@@ -901,7 +978,7 @@ function loadData(mode, channels, feature, specificity, spot_size, mask_channel,
 		run("Bio-Formats Importer", "open=["+path+"] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
 		id = getImageID();
 		mask_id = getMask(mask_channel);
-		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive);
+		coords = detectSpotsInAllChannels(id, channels, feature, specificity, spot_size, mask_id, adaptive, max_size);
 		if (mask_id < 0) {
 			selectImage(mask_id); close();
 		}
@@ -978,6 +1055,7 @@ function countsCodeBySet(codes, sets, channels) {
 	 * returns:
 	 *  counts (array): (N,2^channels) array of counts for each sets
 	 */
+	print("Counting...");
 	n = channels.length;
 	m = pow(2,n);
 	N = codes.length / n;
@@ -1013,6 +1091,7 @@ function aggregateCountsPerSet(counts, set, channels) {
 	 * Result:
 	 *  agg (array): 2^channels
 	 */
+	print("Aggregating...");
 	n = channels.length;
 	m = pow(2,n);
 	N = counts.length / m;
@@ -1182,13 +1261,17 @@ function zProjectAndShowROIs(mode, coords, channels, spot_size) {
 	/* zproject and show roi for a quick evaluation	*/
 	if (dozproject && mode!=3 && !closeonexit) {
 		run("Select None");
-		Stack.getDimensions(_, _, _, slices, _);
+		Stack.getDimensions(_, _, nchannels, slices, _);
+		
 		if (slices > 1) {
 			run("Z Project...", "projection=[Max Intensity]");
 		}
 		addOverlay(mode, coords, channels, spot_size);
 		Stack.setDisplayMode("composite");
-		run("Flatten");
+		for (channel = 1; channel <= nchannels; channel++) {
+			Stack.setChannel(channel);
+			run("Enhance Contrast", "saturated=0.35");
+		}
 	}
 }
 
@@ -1199,8 +1282,9 @@ function main() {
 	channels = parseCSVInt(channels_str);
 	specificity = parseCSVFloat(specificity_str);
 	spot_size = parseCSVFloat(spot_size_str);
+	max_spot_size = parseCSVFloat(max_spot_size_str);
 	mask_channel = parseMaskStr(mask_str);
-	coords = loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive);
+	coords = loadData(mode, channels, feature, specificity, spot_size, mask_channel, adaptive, max_spot_size);
 	codes = computeCodes(coords, channels, dmax);
 	showCodes("codes.csv", codes, channels);
 	sets = powerSet(channels.length);

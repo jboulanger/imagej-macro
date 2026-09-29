@@ -107,12 +107,13 @@ function mergeLabels(labels, channel_names, name) {
 function appendCentroidToTable(tbl, name, channel_names, channel_indices, labels) {
 	// append centroids to the table for each label image	
 	for (k = 0; k < labels.length; k++) {
-		selectImage(labels[k]);		
+		selectImage(labels[k]);
+		getVoxelSize(dx, dy, dz, unit);
 		run("Analyze Regions 3D", "volume centroid surface_area_method=[Crofton (13 dirs.)] euler_connectivity=6");
 		wait(500);		
 		volume = Table.getColumn("Volume");
 		id = Table.getColumn("Label");
-		x = Table.getColumn("Centroid.X");	
+		x = Table.getColumn("Centroid.X");
 		y = Table.getColumn("Centroid.Y");	
 		z = Table.getColumn("Centroid.Z");
 		run("Close");
@@ -126,9 +127,9 @@ function appendCentroidToTable(tbl, name, channel_names, channel_indices, labels
 			Table.set("Channel Index", row, channel_indices[k]);	
 			Table.set("Label", row, id[i]);
 			Table.set("Volume", row, volume[i]);
-			Table.set("X", row, x[i]);
-			Table.set("Y", row, y[i]);
-			Table.set("Z", row, z[i]);	
+			Table.set("X", row, x[i]*dx);
+			Table.set("Y", row, y[i]*dy);
+			Table.set("Z", row, z[i]*dz);	
 			Table.set("C", row, k);	
 		}
 	}
