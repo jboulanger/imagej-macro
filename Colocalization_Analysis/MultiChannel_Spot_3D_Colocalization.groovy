@@ -1,4 +1,3 @@
-
 /**
  * ============================================================================
  * 3D MULTI-CHANNEL SPOT DETECTION AND SPATIAL COLOCALIZATION PIPELINE
@@ -22,13 +21,13 @@
  * 5. Subpixel Localization: Refines spot centroids in continuous physical space
  *    using 1D orthogonal Gaussian intensity profile fitting.
  * 6. Spatial Colocalization Engine: Employs ImgLib2 KD-Trees for fast 3D radius
- *    neighbor searches (\(d_{max}\)) and evaluates power-set channel overlap codes.
+ *    neighbor searches (d_max) and evaluates power-set channel overlap codes.
  *
  * Dependencies (Fiji Plugins):
  * ----------------------------
  * - MorphoLibJ (inra.ijpb.*)
  * - ImgLib2 (net.imglib2.*)
- * - FeatureJ (for LoG option)
+ * - Bio-Formats (loci.plugins.BF)
  *
  * Developer: Research Software Engineering Core
  * ============================================================================
@@ -52,6 +51,17 @@
 #@ Boolean (label="Save coordinates", value=false, description="Export localized spot coordinates to a CSV file") saveCoordinates
 #@ Boolean (label="Z project", value=false, description="Generate a 2D Maximum Intensity Projection with overlay ROIs") doZProject
 
+
+
+// Groovy language import
+import groovy.transform.CompileStatic
+import java.io.*
+import java.util.stream.IntStream
+import java.util.*
+
+import java.awt.Color
+import java.awt.Frame
+
 // Standard Java & I/O Imports
 import ij.*
 import ij.gui.*
@@ -66,33 +76,36 @@ import inra.ijpb.distance.*
 import inra.ijpb.label.*
 import inra.ijpb.plugins.*
 import inra.ijpb.watershed.*
+import inra.ijpb.morphology.MinimaAndMaxima
+import inra.ijpb.morphology.MinimaAndMaxima3D
 
-import java.awt.Color
-import java.awt.Frame
-import java.io.*
-import java.util.*
 
+import net.imglib2.algorithm.gauss3.Gauss3
+import net.imglib2.algorithm.gradient.PartialDerivative
+import net.imglib2.converter.Converters
+import net.imglib2.Cursor
 import net.imglib2.KDTree
 import net.imglib2.RealPoint
-import net.imglib2.algorithm.gauss3.Gauss3
-import net.imglib2.algorithm.derivative.Laplacian
+import net.imglib2.RandomAccessibleInterval
+import net.imglib2.type.numeric.real.FloatType
+import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.img.display.imagej.ImageJFunctions
 import net.imglib2.interpolation.randomaccess.NLinearInterpolatorFactory
 import net.imglib2.loops.LoopBuilder
 import net.imglib2.neighborsearch.RadiusNeighborSearchOnKDTree
-import net.imglib2.type.numeric.real.DoubleType
 import net.imglib2.view.Views
+import net.imglib2.algorithm.neighborhood.RectangleShape
+import net.imglib2.algorithm.neighborhood.Neighborhood
+import net.imglib2.img.display.imagej.ImageJFunctions
+
+import loci.plugins.BF
 
 
 // ============================================================================
 // I/O & PARSING HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Determines execution mode based on the input string path.
- * @param pathStr Path or keyword provided in the user dialog
- * @return String mode identifier: "test", "image", "csv", or "file"
- */
+/** Determines execution mode based on input string path. */
 String getMode(String pathStr) {
     if (pathStr =~ /.*test/) return "test"
     if (pathStr =~ /.*image/) return "image"
@@ -131,6 +144,20 @@ double[] voxelSize(ImagePlus imp) {
     return [cal.pixelWidth, cal.pixelHeight, cal.pixelDepth] as double[]
 }
 
+/** Compute the volume in microns */
+double computePhysicalVolume(ImagePlus imp) {
+    double[] v = voxelSize(imp) 
+    
+    int slices = imp.getNSlices() > 1 ? imp.getNSlices() : imp.getStackSize()
+    double physicalArea = (imp.getWidth() * v[0]) * (imp.getHeight() * v[1])
+    
+    if (slices > 1) {
+        return physicalArea * (slices * v[2]) // Volume in um^3
+    }
+    return physicalArea // Area in um^2
+}
+
+
 /** Extracts a single 1-based channel from an ImagePlus volume as 32-bit FloatProcessor stack. */
 ImagePlus extractChannelFloat(ImagePlus imp, int channel) {
     ImageStack src = imp.getStack()
@@ -155,61 +182,113 @@ ImagePlus duplicateFloat(ImagePlus imp, String title) {
 }
 
 /** Applies element-wise square root in-place. */
+@CompileStatic
 void sqrtInPlace(ImagePlus imp) {
-    ImageStack s = imp.getStack()
-    for (int i = 1; i <= s.getSize(); i++) {
-        ImageProcessor ip = s.getProcessor(i)
-        for (int k = 0; k < ip.getPixelCount(); k++) {
-            float v = ip.getf(k)
-            ip.setf(k, (float) (v > 0 ? Math.sqrt(v) : 0.0))
+    ImageStack stack = imp.getStack()
+    int numSlices = stack.getSize()
+    
+    for (int i = 1; i <= numSlices; i++) {
+        float[] pixels = (float[]) stack.getPixels(i)
+        int len = pixels.length
+        
+        for (int k = 0; k < len; k++) {
+            float v = pixels[k]
+            pixels[k] = v > 0f ? (float) Math.sqrt(v) : 0f
         }
     }
 }
 
 /** Scales all voxel intensities by constant factor f in-place. */
+@CompileStatic
 void scaleAll(ImagePlus imp, float f) {
-    ImageStack s = imp.getStack()
-    for (int i = 1; i <= s.getSize(); i++) {
-        ImageProcessor ip = s.getProcessor(i)
-        for (int k = 0; k < ip.getPixelCount(); k++) {
-            ip.setf(k, (float) (ip.getf(k) * f))
+    ImageStack stack = imp.getStack()
+    int numSlices = stack.getSize()
+    
+    for (int i = 1; i <= numSlices; i++) {
+        float[] pixels = (float[]) stack.getPixels(i)
+        int len = pixels.length
+        
+        for (int k = 0; k < len; k++) {
+            pixels[k] *= f
         }
     }
 }
 
 /** Scales a specific slice's pixel values by constant factor f. */
+@CompileStatic
 void scaleSlice(ImagePlus imp, int slice, float f) {
     float[] px = (float[]) imp.getStack().getPixels(slice)
     for (int k = 0; k < px.length; k++) px[k] *= f
 }
 
 /** Element-wise multiplication: a = a * b */
+@CompileStatic
 void multiplyInPlace(ImagePlus a, ImagePlus b) {
     ImageStack sa = a.getStack()
     ImageStack sb = b.getStack()
-    for (int i = 1; i <= sa.getSize(); i++) {
-        ImageProcessor pa = sa.getProcessor(i)
-        ImageProcessor pb = sb.getProcessor(i)
-        for (int k = 0; k < pa.getPixelCount(); k++) {
-            pa.setf(k, (float) (pa.getf(k) * pb.getf(k)))
+    int numSlices = sa.getSize()
+    
+    for (int i = 1; i <= numSlices; i++) {
+        float[] pxA = (float[]) sa.getPixels(i)
+        float[] pxB = (float[]) sb.getPixels(i)
+        int len = pxA.length
+        
+        for (int k = 0; k < len; k++) {
+            pxA[k] *= pxB[k]
         }
     }
 }
 
 /** Element-wise subtraction: a = a - b */
+@CompileStatic
 void subtractInPlace(ImagePlus a, ImagePlus b) {
     ImageStack sa = a.getStack()
     ImageStack sb = b.getStack()
-    for (int i = 1; i <= sa.getSize(); i++) {
-        ImageProcessor pa = sa.getProcessor(i)
-        ImageProcessor pb = sb.getProcessor(i)
-        for (int k = 0; k < pa.getPixelCount(); k++) {
-            pa.setf(k, (float) (pa.getf(k) - pb.getf(k)))
+    int numSlices = sa.getSize()
+    
+    for (int i = 1; i <= numSlices; i++) {
+        float[] pxA = (float[]) sa.getPixels(i)
+        float[] pxB = (float[]) sb.getPixels(i)
+        int len = pxA.length
+        
+        for (int k = 0; k < len; k++) {
+            pxA[k] -= pxB[k]
+        }
+    }
+}
+
+/** Element-wise subtraction: a = a - b */
+@CompileStatic
+void subtractInPlaceImgLib2(
+        RandomAccessibleInterval target, 
+        RandomAccessibleInterval subtractor) {
+
+    int splitDim = target.numDimensions() - 1
+    int numSlices = (int) target.dimension(splitDim)
+
+    if (numSlices > 4) {
+        IntStream.range(0, numSlices).parallel().forEach { int i ->
+            Cursor c1 = Views.iterable(Views.hyperSlice(target, splitDim, (long) i)).cursor()
+            Cursor c2 = Views.iterable(Views.hyperSlice(subtractor, splitDim, (long) i)).cursor()
+            while (c1.hasNext()) {
+                FloatType v1 = (FloatType) c1.next()
+                FloatType v2 = (FloatType) c2.next()
+                v1.set(v1.get() - v2.get())
+            }
+        }
+    } else {
+        Cursor c1 = Views.iterable(target).cursor()
+        Cursor c2 = Views.iterable(subtractor).cursor()
+        while (c1.hasNext()) {
+            FloatType v1 = (FloatType) c1.next()
+            FloatType v2 = (FloatType) c2.next()
+            v1.set(v1.get() - v2.get())
         }
     }
 }
 
 /** Binarizes volume in-place: pixel = 1.0 if pixel >= t else 0.0 */
+@CompileStatic
 void binarizeGE(ImagePlus imp, double t) {
     ImageStack s = imp.getStack()
     for (int i = 1; i <= s.getSize(); i++) {
@@ -221,6 +300,7 @@ void binarizeGE(ImagePlus imp, double t) {
 }
 
 /** Inverts binary image: converts 0.0 -> 1.0 and non-zero -> 0.0 */
+@CompileStatic
 void zeroToOne(ImagePlus imp) {
     ImageStack s = imp.getStack()
     for (int i = 1; i <= s.getSize(); i++) {
@@ -232,6 +312,7 @@ void zeroToOne(ImagePlus imp) {
 }
 
 /** Computes global minimum and maximum intensity values across the volume. */
+@CompileStatic
 double[] minMax(ImagePlus imp) {
     double mn = Double.MAX_VALUE, mx = -Double.MAX_VALUE
     ImageStack s = imp.getStack()
@@ -250,11 +331,8 @@ double[] minMax(ImagePlus imp) {
 /** Performs 3D anisotropic Gaussian smoothing using ImgLib2 Gauss3. */
 void gaussian(ImagePlus imp, double sx, double sy, double sz) {
     def img = ImageJFunctions.wrapReal(imp)
-    if (imp.getStackSize() > 1) {
-        Gauss3.gauss([sx, sy, sz] as double[], Views.extendBorder(img), img)
-    } else {
-        Gauss3.gauss([sx, sy] as double[], Views.extendBorder(img), img)
-    }
+    double[] sigmas = (imp.getStackSize() > 1) ? ([sx, sy, sz] as double[]) : ([sx, sy] as double[])
+    Gauss3.gauss(sigmas, Views.extendBorder(img), img)
 }
 
 /** Applies 3D Minimum or Maximum rank filter. */
@@ -271,23 +349,6 @@ ImagePlus rankFilter(ImagePlus imp, boolean max, double rx, double ry, double rz
     }
     out.setCalibration(imp.getCalibration().copy())
     return out
-}
-
-/** Attenuates boundary slice artifacts caused by convolution filters. */
-void correctBorder(ImagePlus imp) {
-    int w = imp.getWidth(), h = imp.getHeight(), nz = imp.getStackSize()
-    if (nz > 1) {
-        scaleSlice(imp, 1, 0.5f)
-        scaleSlice(imp, nz, 0.5f)
-    }
-    for (int z = 1; z < nz; z++) {
-        float[] px = (float[]) imp.getStack().getPixels(z)
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                if (x < 2 || y < 2) px[y * w + x] *= 0.5f
-            }
-        }
-    }
 }
 
 /** Retrieves window reference by title or returns active window. */
@@ -398,58 +459,81 @@ double[] robustStats(ImagePlus imp, double mn, double mx) {
 }
 
 // ============================================================================
-// 3D FEATURE ENHANCEMENT ALGORITHMS
+// 3D FEATURE ENHANCEMENT ALGORITHMS (Native ImgLib2 Refactored)
 // ============================================================================
 
-/** 3D Difference of Gaussians (DoG) bandpass filter. */
+/** Native ImgLib2 3D Difference of Gaussians (DoG) bandpass filter. */
 ImagePlus blobDOG(ImagePlus raw, boolean squareRoot, double size) {
     double[] v = voxelSize(raw)
     double s1 = size, s2 = 3 * size
-    IJ.log("    scale: " + size + "um, [" + s1 / v[0] + "," + s1 / v[0] + "," + 2.5 * s1 / v[2] + "] px")
+    IJ.log(String.format("  scale %.3f um [%.1f,%.1f,%.1f] px", 
+           size, s1 / v[0], s1 / v[1], 2.5 * s1 / v[2]))
 
-    ImagePlus id1 = duplicateFloat(raw, "blob")
-    if (squareRoot) sqrtInPlace(id1)
-    gaussian(id1, s1 / v[0], s1 / v[1], 2.5 * s1 / v[2])
+    // 1. Wrap raw image directly without memory duplication (zero-copy)
+    def imgBase = ImageJFunctions.wrapReal(raw)
+    
+    // 2. Virtual zero-copy view for square root (if enabled)
+    def img = squareRoot ? Converters.convert(imgBase, { src, target -> 
+        double val = src.getRealDouble()
+        target.setReal(val > 0 ? Math.sqrt(val) : 0.0)
+    }, new FloatType()) : imgBase
 
-    ImagePlus id2 = duplicateFloat(id1, "id2")
-    gaussian(id2, s2 / v[0], s2 / v[1], 2.5 * s2 / v[2])
-    subtractInPlace(id1, id2)
-    dispose(id2)
+    // Allocate output buffers for Gaussian scales
+    def dog1 = imgBase.factory().create(imgBase)
+    def dog2 = imgBase.factory().create(imgBase)
 
-    return id1
+    double[] sigmas1 = [s1 / v[0], s1 / v[1], 2.5 * s1 / v[2]] as double[]
+    double[] sigmas2 = [s2 / v[0], s2 / v[1], 2.5 * s2 / v[2]] as double[]
+
+    Gauss3.gauss(sigmas1, Views.extendBorder(img), dog1)
+    Gauss3.gauss(sigmas2, Views.extendBorder(img), dog2)
+
+    // Parallel in-place subtraction
+    subtractInPlaceImgLib2(dog1, dog2)
+
+    // 3. Converts ImgLib2 VirtualStack -> real, writeable ImageJ1 FloatStack
+    ImagePlus out = ImageJFunctions.wrap(dog1, "blobDOG").duplicate()
+    out.setCalibration(raw.getCalibration().copy())
+    return out
 }
 
+/** Native ImgLib2 3D Laplacian of Gaussian (LoG) filter using partial derivatives. */
 ImagePlus blobLOG(ImagePlus raw, boolean squareRoot, double size) {
-    // 1. Prepare raw volume
+    double[] v = voxelSize(raw)
+    
     ImagePlus id1 = duplicateFloat(raw, "id1")
     if (squareRoot) sqrtInPlace(id1)
 
-    // 2. Wrap ImagePlus into ImgLib2 RandomAccessibleInterval
+    // Wrap ImagePlus into ImgLib2 structure
     def img = ImageJFunctions.wrapReal(id1)
     def blurred = img.factory().create(img)
     def laplacianImg = img.factory().create(img)
+    def d2 = img.factory().create(img)
 
-    // 3. Step 1: Gaussian smoothing (sigma = 0.75)
-    
-	double[] v = voxelSize(raw)
-    double[] sigmas = [size/v[0], size/v[1], size/v[2]] as double[]
+    // 1. Parallel Gaussian smoothing
+    double[] sigmas = [size / v[0], size / v[1], 2.5 * size / v[2]] as double[]
     Gauss3.gauss(sigmas, Views.extendBorder(img), blurred)
-    // 4. Step 2: 3D Discrete Laplacian (2nd derivatives)
-    Laplacian.calculate(Views.extendBorder(blurred), laplacianImg)
 
-    // 5. Invert sign to match spot detection conventions (bright spot = positive peak)
+    def extended = Views.extendBorder(blurred)
+    int numDimensions = blurred.numDimensions()
+
+    // 2. Sum 2nd partial derivatives across all axes: d^2I / dx^2
+    for (int d = 0; d < numDimensions; d++) {
+        PartialDerivative.gradientCentralDifference(extended, d2, d, 2)
+
+        LoopBuilder.setImages(laplacianImg, d2).forEachPixel { lap, dev ->
+            lap.setReal(lap.getRealDouble() + dev.getRealDouble())
+        }
+    }
+
+    // 3. Invert sign so bright spots produce positive peaks
     LoopBuilder.setImages(laplacianImg).forEachPixel { pix ->
         pix.setReal(-pix.getRealDouble())
     }
 
-    // 6. Convert back to ImagePlus
     ImagePlus lap = ImageJFunctions.wrap(laplacianImg, "id1 Laplacian").duplicate()
-    
-    // Cleanup temporary resources
     dispose(id1)
     lap.setCalibration(raw.getCalibration().copy())
-    correctBorder(lap)
-    
     return lap
 }
 
@@ -468,16 +552,106 @@ ImagePlus blobTH(ImagePlus raw, boolean squareRoot, double size) {
     return id1
 }
 
-/** Identifies local maxima voxels within local neighborhood radius. */
-ImagePlus localMaxima3D(ImagePlus feat, double size) {
+/** Identifies regional maxima for both 2D images and 3D stacks. */
+ImagePlus localMaxima(ImagePlus feat, double size) {
+    int slices = feat.getStackSize()
+    int w = feat.getWidth()
+    int h = feat.getHeight()
+    int nPixels = w * h
+
+    ImageStack dst = new ImageStack(w, h)
+
+    if (slices > 1) {
+        // 3D Pipeline: 26-connectivity
+        ImageStack maxStack = MinimaAndMaxima3D.regionalMaxima(feat.getStack(), 26)
+        for (int z = 1; z <= slices; z++) {
+            byte[] srcPx = (byte[]) maxStack.getPixels(z)
+            float[] floatPx = new float[nPixels]
+            for (int i = 0; i < nPixels; i++) {
+                floatPx[i] = (srcPx[i] & 0xFF) > 0 ? 1.0f : 0.0f
+            }
+            dst.addSlice(new FloatProcessor(w, h, floatPx))
+        }
+    } else {
+        // 2D Pipeline: 8-connectivity
+        ImageProcessor ip = feat.getProcessor()
+        ImageProcessor maxIp = MinimaAndMaxima.regionalMaxima(ip, 8)
+        byte[] srcPx = (byte[]) maxIp.getPixels()
+        float[] floatPx = new float[nPixels]
+        for (int i = 0; i < nPixels; i++) {
+            floatPx[i] = (srcPx[i] & 0xFF) > 0 ? 1.0f : 0.0f
+        }
+        dst.addSlice(new FloatProcessor(w, h, floatPx))
+    }
+
+    ImagePlus out = new ImagePlus("localMaxima", dst)
+    out.setCalibration(feat.getCalibration().copy())
+    return out
+}
+
+
+/**
+ * Combined Local Maxima + Thresholding using ImgLib2.
+ * Unused currently - need to be compatible with size filtering
+ */
+ImagePlus combinedLocalMaximaThreshold(ImagePlus feat, double threshold, double spotSize) {
     double[] v = voxelSize(feat)
-    double sx = Math.max(2 * size / v[0], 1)
-    double sy = Math.max(2 * size / v[1], 1)
-    double sz = Math.max(2 * size / v[2], 1)
-    ImagePlus dst = rankFilter(feat, true, sx, sy, sz)
-    subtractInPlace(dst, feat)
-    zeroToOne(dst)
-    return dst
+    int numDims = feat.getStackSize() > 1 ? 3 : 2
+    
+    // Calculate neighborhood radii in pixels per axis
+    int[] span = new int[numDims]
+    span[0] = (int) Math.max(1, Math.round(spotSize / v[0]))
+    span[1] = (int) Math.max(1, Math.round(spotSize / v[1]))
+    if (numDims == 3) {
+        span[2] = (int) Math.max(1, Math.round(spotSize / v[2]))
+    }
+
+    // Wrap ImagePlus to ImgLib2 view
+    def img = ImageJFunctions.wrapReal(feat)
+    def outImg = img.factory().create(img)
+
+    // Pad borders with negative infinity so edge peaks are handled correctly
+    def extended = Views.extendValue(img, new FloatType(Float.NEGATIVE_INFINITY))
+
+    // Neighborhood shape (skipCenter = true ensures we compare center only against neighbors)
+    RectangleShape shape = new RectangleShape(span, true)
+
+    Cursor cursor = Views.interval(img, img).cursor()
+    Cursor outCursor = Views.interval(outImg, outImg).cursor()
+    def neighborhoodCursor = shape.neighborhoods(extended, img).cursor()
+
+    float thr = (float) threshold
+
+    while (cursor.hasNext()) {
+        cursor.fwd()
+        outCursor.fwd()
+        neighborhoodCursor.fwd()
+
+        float val = cursor.get().getRealFloat()
+
+        // 1. FAST SHORT-CIRCUIT: Skip neighbor check entirely if below threshold
+        if (val < thr) {
+            outCursor.get().setReal(0.0f)
+            continue
+        }
+
+        // 2. NEIGHBORHOOD CHECK: Only runs on candidate foreground voxels
+        boolean isMax = true
+        Neighborhood nh = neighborhoodCursor.get()
+        for (FloatType neighbor : nh) {
+            if (neighbor.getRealFloat() >= val) { // Strict local peak condition
+                isMax = false
+                break
+            }
+        }
+
+        outCursor.get().setReal(isMax ? 1.0f : 0.0f)
+    }
+
+    // Convert ImgLib2 result stack back to ImageJ FloatStack
+    ImagePlus out = ImageJFunctions.wrap(outImg, "spots").duplicate()
+    out.setCalibration(feat.getCalibration().copy())
+    return out
 }
 
 /** Applies adaptive MAD-based or fixed cutoff thresholding to feature map. */
@@ -551,6 +725,7 @@ ImagePlus filterOutMasks(ImagePlus input, ImagePlus marker, double maxSize) {
 
     int[] voxelCounts = LabelImages.voxelCount(water.getStack(), labelsBefore)
     ImageStack filteredStack = water.getStack().duplicate()
+
     for (int z = 1; z <= filteredStack.getSize(); z++) {
         ImageProcessor ip = filteredStack.getProcessor(z)
         for (int p = 0; p < ip.getPixelCount(); p++) {
@@ -588,8 +763,6 @@ List localizeSpots(ImagePlus imp, int channelIdx) {
 
 /**
  * Samples intensity along a line centered at (x, y, z) with directional vector (u, v, w).
- * Note: Declared with 'def' return type to prevent Groovy 2.x parser bug with double[][].
- *
  * @return 2D double array [4][n] containing [x_coords, y_coords, z_coords, intensities]
  */
 def lineIntensity(ImagePlus imp, double x, double y, double z, double u, double v, double w, int n) {
@@ -647,12 +820,22 @@ double[] gaussianRefine(ImagePlus imp, double[] p) {
     return p
 }
 
-/** Converts voxel coordinates to calibrated micron space with optional subpixel refinement. */
-void refineLocalization(ImagePlus raw, List coords, boolean subpix) {
-    double[] d = voxelSize(raw)
+/** Subpixel refinement. */
+void refineLocalization(ImagePlus raw, List coords) {
     coords.each { double[] c ->
         double[] p = [c[1], c[2], c[3]] as double[]
-        if (subpix) p = gaussianRefine(raw, p)
+        p = gaussianRefine(raw, p)
+        c[1] = p[0] 
+        c[2] = p[1] 
+        c[3] = p[2] 
+    }
+}
+
+/** Converts voxel coordinates to calibrated micron space with optional subpixel refinement. */
+void scaleCoordinatesToMicrons(ImagePlus raw, List coords) {	
+	double[] d = voxelSize(raw)
+	coords.each { double[] c ->
+        double[] p = [c[1], c[2], c[3]] as double[]
         c[1] = p[0] * d[0]
         c[2] = p[1] * d[1]
         c[3] = p[2] * d[2]
@@ -669,34 +852,46 @@ List detect3DSpots(ImagePlus imp, List channels, String feat, List sizes,
     double maxSize = maxSizes[channelIdx]
 
     IJ.log(" - detect spots in channel " + channel)
-
+    
     ImagePlus raw = extractChannelFloat(imp, channel)
     ImagePlus id1
+    // Step 1 - Compute a blob feature
     switch (feat.toUpperCase()) {
         case "DOG": id1 = blobDOG(raw, true, size); break
         case "LOG": id1 = blobLOG(raw, true, size); break
         case "TOP HAT": id1 = blobTH(raw, true, size); break
         default: id1 = duplicateFloat(raw, "id1")
     }
-
-    ImagePlus id3 = localMaxima3D(id1, size)
+    
+	// Step 2 - Non-maximuum suppression
+    ImagePlus id3 = localMaxima(id1, size)
+    
+    // Step 3 - Apply predefined masking on the NMS
     if (maskImp != null) multiplyInPlace(id3, maskImp)
-
+    
+	// Step 4 - Threshold the score in place
     thresholdAuto(id1, pfa, adaptiveThr)
-
+    
+	// Step 5 - Filter out the segmented region above maxSize
     if (maxSize > 0) {
         ImagePlus filtered = filterOutMasks(id1, id3, maxSize)
         dispose(id1)
         id1 = filtered
     }
-
+    
+	//  Step 6 - Multiply/And operator of thresholded map id1 and NMS id3
     multiplyInPlace(id1, id3)
-
+    
+	//  Step 7 - Collect pixel locations
     IJ.log("   localize spots")
     List coords = localizeSpots(id1, channelIdx)
 
-    IJ.log("   refine spots")
-    refineLocalization(raw, coords, subpix)
+	if (subpix) {
+	    IJ.log("   refine spots")
+	    refineLocalization(raw, coords)
+	}
+	scaleCoordinatesToMicrons(raw, coords)
+	
 
     [id1, id3, raw].each { dispose(it) }
     IJ.log("   number of spots: " + coords.size())
@@ -970,7 +1165,7 @@ void appendRecord(double[] agg, int[] sets, List channels, String feat,
 
 /** Synthesizes synthetic 3D hyperstack with ground truth spot distributions and Gaussian noise. */
 ImagePlus generateTestImage(List channels, String recordName) {
-   	closeAllImages()
+    closeAllImages()
     int w = 200, h = 200, d = 100, n = 100, b = 10
     int c = channels.size()
     IJ.log("Generating " + n + " candidate locations...")
@@ -985,7 +1180,7 @@ ImagePlus generateTestImage(List channels, String recordName) {
             chs[j].addSlice(sp)
         }
     }
-
+	IJ.log("Generating image...")
     int m = 1 << c
     double[] agg0 = new double[m]
     List codesList = []
@@ -1003,23 +1198,26 @@ ImagePlus generateTestImage(List channels, String recordName) {
         for (int j0 = 0; j0 < c; j0++) if (values[j0] == 1) codesList.addAll(values.toList())
         agg0[Integer.parseInt(values.toList().join(""), 2)]++
     }
-
+    
+	IJ.log("Generating blur and noise...")
     double sigma = 0.2, dxy = 0.11, dz = 0.33
     for (int j = 0; j < c; j++) {
         ImageStack st = Filters3D.filter(chs[j], Filters3D.MAX, 1f, 1f, 1f)
         ImagePlus tmp = new ImagePlus("ch" + (j + 1), st)
-        GaussianBlur3D.blur(tmp, sigma / dxy, sigma / dxy, 3 * sigma / dz)
+        gaussian(tmp, sigma / dxy, sigma / dxy, 3 * sigma / dz)
         st = tmp.getStack()
         for (int z = 1; z <= st.getSize(); z++) st.getProcessor(z).noise(25.0)
         chs[j] = st
     }
-
+	
+	IJ.log("Assembling stack...")
     ImageStack all = new ImageStack(w, h)
     for (int z = 1; z <= d; z++) for (int j = 0; j < c; j++) all.addSlice(chs[j].getProcessor(z))
     ImagePlus imp = new ImagePlus("Test Image", all)
     imp.setDimensions(c, d, 1)
     if (c > 1) imp = new CompositeImage(imp, IJ.GRAYSCALE)
     imp.setOpenAsHyperStack(true)
+    
     Calibration cal = imp.getCalibration()
     cal.pixelWidth = dxy; cal.pixelHeight = dxy; cal.pixelDepth = dz; cal.setUnit("um")
     imp.setSlice((int) Math.round(d / 2.0))
@@ -1027,14 +1225,17 @@ ImagePlus generateTestImage(List channels, String recordName) {
         imp.setC(i)
         imp.setDisplayRange(50, 1000)
     }
-    imp.show()
-
+    
+	IJ.log("Testing aggregation...")
     double[] codes = codesList.collect { it as double } as double[]
     int[] sets = powerSet(c)
     double[] counts = countsCodeBySet(codes, sets, c)
     double[] agg = aggregateCountsPerSet(counts, c)
     double[] agg4 = divideBySetCardinality(correctAggCounts(agg, sets, c), sets, c)
+    
+    IJ.log("Storing results..")
     List zeros = [0d] * c
+
     appendRecord(agg4, sets, channels, "ground truth", zeros, zeros, recordName)
     appendRecord(agg0, sets, channels, "ground truth*", zeros, zeros, recordName)
     return imp
@@ -1111,8 +1312,138 @@ void zProjectAndShowROIs(ImagePlus imp, List coords, List channels, List spotSiz
     }
 }
 
+/** Load the image using Bio-Formats **/
+ImagePlus openImage(String path) {
+    ImagePlus[] imps = BF.openImagePlus(path)
+    if (imps != null && imps.length > 0) {
+        return imps[0]
+    } else {
+        IJ.error("Error", "Failed to open image via Bio-Formats: " + path)
+        return null
+    }
+}
+
 // ============================================================================
-// MAIN WORKFLOW CONTROLLER
+// STATISTICAL ANALYSIS
+// ============================================================================
+
+/**
+ * Calculates Poisson p-values for all power-set channel combinations against CSR
+ * Very crude approximation
+ * 
+ */
+//Map computeCSRPvalues(
+//	double[] channelCounts, 
+//    double[] observedAggCounts, 
+//    int[] powerSets, 
+//    int nc, 
+//    double dmax, 
+//    double totalVolumeUm, 
+//    boolean is3D) {
+//    Map pValues = [:]
+//    if (totalVolumeUm <= 0) return pValues
+//
+//    // Search ball volume
+//    double vR = is3D ? (4.0 / 3.0) * Math.PI * Math.pow(dmax, 3) 
+//                     : Math.PI * Math.pow(dmax, 2)
+//                     
+//    for (int k = 0; k < powerSets.size(); k++) {
+//    	
+//    }
+//                     
+//    retrun pValues
+//        	
+//}
+
+/**
+ * Calculates Poisson p-values for all power-set channel combinations.
+ * 
+ * @param channelCounts Array containing total spot counts per channel [N_ch1, N_ch2, ...]
+ * @param observedAggCounts Array of observed aggregate spot counts per set (from aggregateCountsPerSet)
+ * @param powerSets Binary power-set matrix (from powerSet(nc))
+ * @param nc Number of channels
+ * @param dmax Proximity radius in microns
+ * @param totalVolumeUm Physical volume of mask or image bounding box (um^3 or um^2)
+ * @param is3D True if 3D stack, false if 2D slice
+ * @return Map of set index to p-value
+ */
+Map computeMultiChannelPoissonPValues(
+        double[] channelCounts, 
+        double[] observedAggCounts, 
+        int[] powerSets, 
+        int nc, 
+        double dmax, 
+        double totalVolumeUm, 
+        boolean is3D) {
+
+    Map pValues = [:]
+    if (totalVolumeUm <= 0) return pValues
+
+    // Search ball volume
+    double vR = is3D ? (4.0 / 3.0) * Math.PI * Math.pow(dmax, 3) 
+                     : Math.PI * Math.pow(dmax, 2)
+
+    int numSets = 1 << nc
+
+    // Iterate across power-set combinations (skip empty set k=0 and singletons card=1)
+    for (int k = 1; k < numSets; k++) {
+        List memberChannels = []
+        List nonMemberChannels = []
+
+        for (int j = 0; j < nc; j++) {
+            if (powerSets[j + nc * k] == 1) {
+                memberChannels.add(j)
+            } else {
+                nonMemberChannels.add(j)
+            }
+        }
+
+        // Only process multi-channel combinations (2 or more channels)
+        if (memberChannels.size() < 2) {
+            pValues[k] = 1.0
+            continue
+        }
+
+        // Select reference channel with minimum spot count
+        int refChan = memberChannels.min { channelCounts[it] }
+        int nRef = channelCounts[refChan]
+
+        if (nRef == 0) {
+            pValues[k] = 1.0
+            continue
+        }
+
+        // Calculate joint probability p_joint (Inclusive model)
+        double pJoint = 1.0
+        for (int targetChan : memberChannels) {
+            if (targetChan == refChan) continue
+            double lambdaJ = (double) channelCounts[targetChan] / totalVolumeUm
+            double pJ = 1.0 - Math.exp(-lambdaJ * vR)
+            pJoint *= pJ
+        }
+
+        double lambdaTotal = nRef * pJoint
+        int kObs = (int) Math.round(observedAggCounts[k])
+
+        // Poisson CDF survival function: P(K >= kObs) = 1 - CDF(kObs - 1)
+        double sum = 0.0
+        double term = Math.exp(-lambdaTotal)
+        sum += term
+
+        for (int i = 1; i < kObs; i++) {
+            term *= (lambdaTotal / i)
+            sum += term
+        }
+
+        double pVal = 1.0 - sum
+        pValues[k] = Math.max(0.0, Math.min(1.0, pVal))
+    }
+	print(pValues)
+    return pValues
+}
+
+// ============================================================================
+// MAIN WORKFLOW 
 // ============================================================================
 
 /** Main entry point for workflow execution. */
@@ -1153,6 +1484,7 @@ void runColocalization() {
     if (mode == "test") {
         IJ.log("Generating synthetic test dataset...")
         imp = generateTestImage(channels, recordName)
+        IJ.log("Detecting...")
         coords = detectSpotsInAllChannels(imp, channels, feature, specificity, spotSizes, null,
             adaptiveThr, maxSizes, subpixel)
     } else if (mode == "csv") {
@@ -1164,7 +1496,6 @@ void runColocalization() {
                 String p = IJ.getFilePath("Please select a file")
                 if (p == null) return
                 imp = IJ.openImage(p)
-                imp.show()
             } else {
                 imp = WindowManager.getCurrentImage()
             }
@@ -1172,17 +1503,17 @@ void runColocalization() {
             recordName = imp.getTitle()
         } else {
             IJ.log("Opening image " + inp)
-            IJ.run("Bio-Formats Importer",
-                "open=[" + inp + "] color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT")
-            imp = IJ.getImage()
+            imp = openImage(inp)
+            if (imp == null) return
         }
         ImagePlus maskImp = maskChannel != null ? getMask(imp, maskChannel) : null
+        IJ.log("Detecting...")
         coords = detectSpotsInAllChannels(imp, channels, feature, specificity, spotSizes, maskImp,
             adaptiveThr, maxSizes, subpixel)
         dispose(maskImp)
     }
 
-	IJ.log("Counting and aggregating...")
+    IJ.log("Counting and aggregating...")
     int[] icodes = computeCodes(coords, nc, dmax)
     showCodes("codes.csv", icodes, channels)
     double[] codes = icodes.collect { it as double } as double[]
@@ -1191,8 +1522,17 @@ void runColocalization() {
     showCounts("counts.csv", counts, sets, channels)
     double[] agg = aggregateCountsPerSet(counts, nc)
     double[] agg2 = divideBySetCardinality(correctAggCounts(agg, sets, nc), sets, nc)
+    
+	IJ.log("Calculating csr pvalues...")
+	double volumeUm = computePhysicalVolume(imp)
+	boolean is3D = imp.nSlices > 1 ? true : false
+    pvalues = computeMultiChannelPoissonPValues(agg, agg2, sets, nc, dmax, volumeUm, is3D)
+    print(pvalues)
+    
     appendRecord(agg2, sets, channels, feature, specificity, spotSizes, recordName)
-
+    
+    if (imp != null) imp.show()
+    
     if (imp != null && !closeOnExit) addOverlay(imp, coords, channels, spotSizes)
     exportCoordsToCSV(mode, coords, channels, spotSizes, imp, recordName, saveCoordinates)
     if (doZProject && imp != null && !closeOnExit) zProjectAndShowROIs(imp, coords, channels, spotSizes)
